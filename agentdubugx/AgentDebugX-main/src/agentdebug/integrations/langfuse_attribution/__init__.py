@@ -13,6 +13,7 @@ from .evaluation import (
     predict_file_not_found_cases,
 )
 from .historical_converter import convert_historical_langfuse_observations
+from .llm_attributor import FileNotFoundLLMAttributor
 from .models import (
     CauseKind,
     ConversionEvidence,
@@ -49,6 +50,7 @@ __all__ = [
     'FailureGateResult',
     'FileNotFoundAttributionResult',
     'FileNotFoundDecision',
+    'FileNotFoundLLMAttributor',
     'LangfuseConversionResult',
     'LangfuseToolAttributor',
     'ParameterSource',

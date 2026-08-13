@@ -182,6 +182,14 @@ def _file_not_found_attribution_card(
     reasons = reason_codes if isinstance(reason_codes, list) else []
     evidence_ids = summary.get('evidence_observation_ids')
     evidence = evidence_ids if isinstance(evidence_ids, list) else []
+    attribution_method = _humanize(summary.get('attribution_method'))
+    model = str(summary.get('model') or 'Not used')
+    total_count = summary.get('total_observation_count')
+    reviewed_count = summary.get('reviewed_observation_count')
+    prompt_tokens = summary.get('llm_prompt_tokens')
+    completion_tokens = summary.get('llm_completion_tokens')
+    context_text = _count_pair(reviewed_count, total_count, 'observations')
+    token_text = _count_pair(prompt_tokens, completion_tokens, 'tokens', separator=' + ')
 
     root_value = (
         root_label + (' · ' + root_domain if root_domain != 'unknown' else '')
@@ -206,7 +214,12 @@ def _file_not_found_attribution_card(
         '<div class="decision-summary"><strong>Agent failure</strong><span>'
         + html_escape(_agent_failure_label(summary.get('is_agent_failure')))
         + '</span><strong>Semantic outcome</strong><span>' + html_escape(semantics)
-        + '</span><strong>Confidence</strong><span>' + html_escape(confidence_text) + '</span></div>'
+        + '</span><strong>Confidence</strong><span>' + html_escape(confidence_text)
+        + '</span><strong>Attribution method</strong><span>'
+        + html_escape(attribution_method) + '</span><strong>Model</strong><span>'
+        + html_escape(model) + '</span><strong>Model context</strong><span>'
+        + html_escape(context_text) + '</span><strong>Token usage</strong><span>'
+        + html_escape(token_text) + '</span></div>'
         '<dl class="node-grid"><div><dt>Failure observation</dt><dd class="mono">'
         + (_observation_link(trace_id, failure_id) if failure_id else 'Not recorded')
         + '</dd></div><div><dt>Root cause observation</dt><dd class="mono">'
@@ -217,6 +230,18 @@ def _file_not_found_attribution_card(
         + reason_items + '</ul></div><div><h3>Evidence observations</h3><ul>'
         + evidence_items + '</ul></div></div></article>'
     )
+
+
+def _count_pair(
+    first: Any,
+    second: Any,
+    unit: str,
+    *,
+    separator: str = ' / ',
+) -> str:
+    if first is None or second is None:
+        return 'Not recorded'
+    return f'{first}{separator}{second} {unit}'
 
 
 def _observation_link(trace_id: str, observation_id: str) -> str:
@@ -241,7 +266,7 @@ def _agent_failure_label(value: Any) -> str:
 
 
 def _humanize(value: Any) -> str:
-    return str(value or 'unknown').replace('_', ' ')
+    return str(value or 'unknown').replace('_', ' ').replace('llm', 'LLM')
 
 
 _TOOL_ATTRIBUTION_HTML = """<!doctype html>

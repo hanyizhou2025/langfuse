@@ -42,6 +42,12 @@ class FileNotFoundAttributionResult:
     evidence_observation_ids: List[str] = field(default_factory=list)
     confidence: float = 0.0
     reason_codes: List[str] = field(default_factory=list)
+    attribution_method: str = 'deterministic'
+    model: Optional[str] = None
+    total_observation_count: int = 0
+    reviewed_observation_count: int = 0
+    llm_prompt_tokens: Optional[int] = None
+    llm_completion_tokens: Optional[int] = None
 
 
 _CAUSE_LABELS = {

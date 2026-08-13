@@ -57,6 +57,12 @@ def test_render_tool_attribution_page_displays_file_not_found_decision(
             'evidence_observation_ids': ['evt_plan', 'evt_tool'],
             'confidence': 0.95 if label else 0.0,
             'reason_codes': [reason_code],
+            'attribution_method': 'llm_enhanced',
+            'model': 'public-model-mini',
+            'total_observation_count': 1200,
+            'reviewed_observation_count': 48,
+            'llm_prompt_tokens': 2400,
+            'llm_completion_tokens': 180,
         }
     ]
 
@@ -68,6 +74,10 @@ def test_render_tool_attribution_page_displays_file_not_found_decision(
     assert reason_code.replace('_', ' ') in page
     assert 'Failure observation' in page
     assert '/trace/trace_failed/event/evt_tool' in page
+    assert 'LLM enhanced' in page
+    assert 'public-model-mini' in page
+    assert '48 / 1200 observations' in page
+    assert '2400 + 180 tokens' in page
     if label:
         assert label.replace('_', ' ') in page
         assert 'Root cause observation' in page

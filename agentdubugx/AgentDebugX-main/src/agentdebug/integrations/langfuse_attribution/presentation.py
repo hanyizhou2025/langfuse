@@ -28,6 +28,12 @@ _FILE_NOT_FOUND_DISPLAY_FIELDS = (
     'evidence_observation_ids',
     'confidence',
     'reason_codes',
+    'attribution_method',
+    'model',
+    'total_observation_count',
+    'reviewed_observation_count',
+    'llm_prompt_tokens',
+    'llm_completion_tokens',
 )
 
 
