@@ -2,6 +2,7 @@
 
 from .attributor import LangfuseToolAttributor
 from .converter import convert_langfuse_observations
+from .historical_converter import convert_historical_langfuse_observations
 from .models import (
     CauseKind,
     ConversionEvidence,
@@ -31,6 +32,7 @@ __all__ = [
     'ToolFailureEvidence',
     'ValueSource',
     'attach_tool_attributions',
+    'convert_historical_langfuse_observations',
     'convert_langfuse_observations',
     'tool_attribution_summaries',
     'tool_attribution_to_dict',
