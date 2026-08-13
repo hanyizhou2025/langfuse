@@ -60,9 +60,7 @@ def convert_historical_langfuse_observations(
                     'tool_call_observation_id': observation_id,
                     'error_code': error_code or 'FILE_NOT_FOUND',
                     'error_message': _error_message(observation),
-                    'resource_existence': {
-                        key: False for key in argument
-                    },
+                    'resource_existence': dict.fromkeys(argument, False),
                 },
             )
             continue
@@ -79,9 +77,7 @@ def convert_historical_langfuse_observations(
             continue
         arguments, source = reconstructed
         failure.arguments = dict(arguments)
-        failure.argument_sources = {
-            key: source for key in arguments
-        }
+        failure.argument_sources = dict.fromkeys(arguments, source)
 
     return converted
 

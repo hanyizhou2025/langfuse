@@ -71,6 +71,8 @@ def render_tool_attribution_page(trajectory: AgentTrajectory) -> str:
 
     from agentdebug.integrations.langfuse_attribution import (
         ATTRIBUTION_METADATA_KEY,
+        FILE_NOT_FOUND_ATTRIBUTION_METADATA_KEY,
+        file_not_found_attribution_summaries,
         tool_attribution_summaries,
     )
 
@@ -79,15 +81,25 @@ def render_tool_attribution_page(trajectory: AgentTrajectory) -> str:
     summaries = tool_attribution_summaries(
         (trajectory.metadata or {}).get(ATTRIBUTION_METADATA_KEY)
     )
-    cards = ''.join(
+    tool_cards = ''.join(
         _tool_attribution_card(summary, trace_id) for summary in summaries
     )
+    file_not_found_summaries = file_not_found_attribution_summaries(
+        (trajectory.metadata or {}).get(
+            FILE_NOT_FOUND_ATTRIBUTION_METADATA_KEY
+        )
+    )
+    file_not_found_cards = ''.join(
+        _file_not_found_attribution_card(summary, trace_id)
+        for summary in file_not_found_summaries
+    )
+    cards = file_not_found_cards + tool_cards
     if not cards:
         cards = (
             '<section class="empty"><strong>No tool attribution evidence recorded.</strong>'
-            '<p>This trace can still show generic DebugX findings. Record '
-            '<code>metadata.attribution</code> during tool execution to enable '
-            'source-aware attribution.</p></section>'
+            '<p>Run the File Not Found dataset command and upload its '
+            '<code>trajectories.jsonl</code>, or record '
+            '<code>metadata.attribution</code> during live tool execution.</p></section>'
         )
     return _TOOL_ATTRIBUTION_HTML.replace('__TRACE_ID__', html_escape(trace_id)).replace(
         '__TRACE_HREF__', html_escape(trace_href, quote=True)
@@ -136,6 +148,98 @@ def _tool_attribution_card(summary: Dict[str, Any], trace_id: str) -> str:
     )
 
 
+def _file_not_found_attribution_card(
+    summary: Dict[str, Any],
+    trace_id: str,
+) -> str:
+    decision = str(summary.get('decision') or 'unknown')
+    status_labels = {
+        'attributed': 'Root cause attributed',
+        'not_agent_failure': 'Not an agent failure',
+        'unknown': 'Needs human review',
+        'invalid_case': 'Invalid dataset case',
+    }
+    status = status_labels.get(decision, 'Needs human review')
+    tone = {
+        'attributed': 'attributed',
+        'not_agent_failure': 'expected',
+        'unknown': 'unknown',
+        'invalid_case': 'invalid',
+    }.get(decision, 'unknown')
+    confidence = summary.get('confidence')
+    try:
+        confidence_text = f'{float(confidence) * 100:.0f}%'
+    except (TypeError, ValueError):
+        confidence_text = 'unknown'
+
+    failure_id = str(summary.get('failure_observation_id') or '')
+    root_id = str(summary.get('root_cause_observation_id') or '')
+    root_label = _humanize(summary.get('root_cause_label'))
+    root_domain = _humanize(summary.get('root_cause_domain'))
+    semantics = _humanize(summary.get('semantics'))
+    case_id = str(summary.get('case_id') or 'not recorded')
+    reason_codes = summary.get('reason_codes')
+    reasons = reason_codes if isinstance(reason_codes, list) else []
+    evidence_ids = summary.get('evidence_observation_ids')
+    evidence = evidence_ids if isinstance(evidence_ids, list) else []
+
+    root_value = (
+        root_label + (' · ' + root_domain if root_domain != 'unknown' else '')
+        if root_id
+        else ('Not applicable' if decision == 'not_agent_failure' else 'Not determined')
+    )
+    reason_items = ''.join(
+        '<li>' + html_escape(_humanize(reason)) + '</li>' for reason in reasons
+    ) or '<li>No deterministic reason code was recorded.</li>'
+    evidence_items = ''.join(
+        '<li>' + _observation_link(trace_id, str(item)) + '</li>'
+        for item in evidence
+        if item
+    ) or '<li>No evidence observation was recorded.</li>'
+
+    return (
+        '<article class="attribution-card file-not-found-card ' + tone + '">'
+        '<div class="card-heading"><div><span class="eyebrow">File Not Found MVP</span>'
+        '<h2>' + html_escape(status) + '</h2>'
+        '<p class="case-id">Case: <span class="mono">' + html_escape(case_id) + '</span></p></div>'
+        '<span class="decision-badge ' + tone + '">' + html_escape(decision.replace('_', ' ')) + '</span></div>'
+        '<div class="decision-summary"><strong>Agent failure</strong><span>'
+        + html_escape(_agent_failure_label(summary.get('is_agent_failure')))
+        + '</span><strong>Semantic outcome</strong><span>' + html_escape(semantics)
+        + '</span><strong>Confidence</strong><span>' + html_escape(confidence_text) + '</span></div>'
+        '<dl class="node-grid"><div><dt>Failure observation</dt><dd class="mono">'
+        + (_observation_link(trace_id, failure_id) if failure_id else 'Not recorded')
+        + '</dd></div><div><dt>Root cause observation</dt><dd class="mono">'
+        + (_observation_link(trace_id, root_id) if root_id else html_escape(root_value))
+        + '</dd></div><div><dt>Root cause type</dt><dd class="cause">'
+        + html_escape(root_value) + '</dd></div></dl>'
+        '<div class="evidence-columns"><div><h3>Decision reasons</h3><ul>'
+        + reason_items + '</ul></div><div><h3>Evidence observations</h3><ul>'
+        + evidence_items + '</ul></div></div></article>'
+    )
+
+
+def _observation_link(trace_id: str, observation_id: str) -> str:
+    from urllib.parse import quote
+
+    href = (
+        '/trace/' + quote(trace_id, safe='') + '/event/'
+        + quote(observation_id, safe='')
+    )
+    return (
+        '<a class="observation-link" href="'
+        + html_escape(href, quote=True) + '">' + html_escape(observation_id) + '</a>'
+    )
+
+
+def _agent_failure_label(value: Any) -> str:
+    if value is True:
+        return 'Yes'
+    if value is False:
+        return 'No'
+    return 'Undetermined'
+
+
 def _humanize(value: Any) -> str:
     return str(value or 'unknown').replace('_', ' ')
 
@@ -145,13 +249,13 @@ _TOOL_ATTRIBUTION_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Tool Attribution · AgentDebugX</title>
 <style>
-:root { color-scheme: dark; --bg:#091117; --panel:#101b24; --line:#263946; --text:#e8f1f5; --muted:#9aadb9; --cyan:#72e8f4; --gold:#f0c76a; }
+:root { color-scheme: dark; --bg:#091117; --panel:#101b24; --line:#263946; --text:#e8f1f5; --muted:#9aadb9; --cyan:#72e8f4; --gold:#f0c76a; --green:#79d6a5; --red:#ff8b8b; }
 * { box-sizing:border-box; } body { margin:0; min-height:100vh; background:radial-gradient(circle at top,#152938,#091117 45%); color:var(--text); font-family:Inter,"SF Pro Text",system-ui,sans-serif; }
 main { width:min(960px,calc(100% - 36px)); margin:0 auto; padding:48px 0 72px; }
 .back { display:inline-flex; color:var(--cyan); text-decoration:none; font-weight:650; margin:0 14px 28px 0; } .eyebrow { color:var(--cyan); font-size:12px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
-h1 { margin:8px 0; font-size:32px; } .lead { margin:0 0 30px; color:var(--muted); } .attribution-card,.empty { background:rgba(16,27,36,.96); border:1px solid var(--line); border-radius:14px; padding:24px; box-shadow:0 16px 40px rgba(0,0,0,.2); }
+h1 { margin:8px 0; font-size:32px; } .lead { margin:0 0 30px; color:var(--muted); } .attribution-card,.empty { background:rgba(16,27,36,.96); border:1px solid var(--line); border-radius:14px; padding:24px; box-shadow:0 16px 40px rgba(0,0,0,.2); } .attribution-card + .attribution-card { margin-top:18px; }
 .card-heading { display:flex; justify-content:space-between; gap:18px; align-items:start; } h2 { margin:4px 0 0; font-size:23px; } .confidence { color:#101820; background:var(--cyan); border-radius:999px; padding:5px 9px; font-size:12px; font-weight:800; white-space:nowrap; }
-dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:22px 0; } dl div { border:1px solid var(--line); border-radius:9px; padding:12px; } dt { color:var(--muted); font-size:12px; } dd { margin:6px 0 0; font-weight:700; } .cause { color:var(--gold); } .mono { font-family:ui-monospace,SFMono-Regular,monospace; font-size:13px; } h3 { margin:22px 0 8px; font-size:14px; } ul { margin:0; padding-left:20px; color:var(--muted); line-height:1.55; } .event-link { display:inline-flex; margin-top:22px; border:1px solid var(--cyan); border-radius:8px; color:var(--cyan); padding:8px 10px; font-size:13px; font-weight:700; text-decoration:none; } code { color:var(--cyan); } @media (max-width:680px) { main { width:min(100% - 24px,960px); padding-top:28px; } dl { grid-template-columns:1fr; } .card-heading { flex-direction:column; } }
+dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:22px 0; } dl div { border:1px solid var(--line); border-radius:9px; padding:12px; min-width:0; } dt { color:var(--muted); font-size:12px; } dd { margin:6px 0 0; font-weight:700; overflow-wrap:anywhere; word-break:break-word; } .cause { color:var(--gold); } .mono { font-family:ui-monospace,SFMono-Regular,monospace; font-size:13px; } h3 { margin:22px 0 8px; font-size:14px; } ul { margin:0; padding-left:20px; color:var(--muted); line-height:1.55; overflow-wrap:anywhere; } .event-link { display:inline-flex; margin-top:22px; border:1px solid var(--cyan); border-radius:8px; color:var(--cyan); padding:8px 10px; font-size:13px; font-weight:700; text-decoration:none; } code,.observation-link { color:var(--cyan); } .observation-link { text-decoration:none; border-bottom:1px dotted currentColor; overflow-wrap:anywhere; word-break:break-word; } .file-not-found-card { border-top:3px solid var(--gold); } .file-not-found-card.attributed { border-top-color:var(--red); } .file-not-found-card.expected { border-top-color:var(--green); } .file-not-found-card.unknown,.file-not-found-card.invalid { border-top-color:var(--gold); } .case-id { color:var(--muted); margin:8px 0 0; overflow-wrap:anywhere; } .decision-badge { border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:12px; font-weight:800; white-space:nowrap; text-transform:uppercase; letter-spacing:.04em; } .decision-badge.attributed { color:var(--red); border-color:var(--red); } .decision-badge.expected { color:var(--green); border-color:var(--green); } .decision-badge.unknown,.decision-badge.invalid { color:var(--gold); border-color:var(--gold); } .decision-summary { display:grid; grid-template-columns:auto 1fr; gap:7px 14px; margin:22px 0; padding:14px 16px; border-radius:10px; background:#0b151d; } .decision-summary strong { color:var(--muted); font-size:12px; } .decision-summary span { font-weight:700; overflow-wrap:anywhere; } .evidence-columns { display:grid; grid-template-columns:1fr 1fr; gap:20px; } @media (max-width:680px) { main { width:min(100% - 24px,960px); padding-top:28px; } dl,.evidence-columns { grid-template-columns:1fr; } .card-heading { flex-direction:column; } .decision-summary { grid-template-columns:1fr; gap:3px; } .decision-summary span + strong { margin-top:8px; } } @media (max-width:420px) { main { width:100%; padding:22px 12px 44px; } .attribution-card,.empty { padding:18px; } h1 { font-size:27px; } h2 { font-size:20px; } .decision-summary { padding:12px; } dl div { padding:10px; } }
 </style></head><body><main><a class="back" href="__TRACE_HREF__">← Back to trace</a><span class="eyebrow">Evidence-backed diagnosis</span><h1>Tool Attribution</h1><p class="lead">Trace: <span class="mono">__TRACE_ID__</span></p>__ATTRIBUTION_CARDS__</main></body></html>"""
 
 

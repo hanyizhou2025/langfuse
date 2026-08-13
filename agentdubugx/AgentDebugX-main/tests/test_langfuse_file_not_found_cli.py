@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from agentdebug.inspect.ui.upload import import_upload_text
+from agentdebug.inspect.ui.views import render_tool_attribution_page
 from agentdebug.integrations.langfuse_attribution.cli import run_dataset
+from agentdebug.runtime import SQLiteTraceStore
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
@@ -98,11 +101,34 @@ def test_run_dataset_writes_predictions_and_report(tmp_path: Path) -> None:
         .splitlines()
     ]
     report = json.loads((output_dir / 'report.json').read_text(encoding='utf-8'))
+    trajectories = [
+        json.loads(line)
+        for line in (output_dir / 'trajectories.jsonl')
+        .read_text(encoding='utf-8')
+        .splitlines()
+    ]
 
     assert summary['prediction_count'] == 1
     assert summary['evaluated'] is True
+    assert summary['trajectory_count'] == 1
     assert predictions[0]['decision'] == 'attributed'
     assert report['attribution']['label_correct'] == 1
+    assert trajectories[0]['trace_id'] == 'trace-cli'
+    assert (
+        trajectories[0]['metadata']['langfuse_file_not_found_attributions']
+        == predictions
+    )
+
+    review_store = SQLiteTraceStore(str(tmp_path / 'review.sqlite'))
+    imported = import_upload_text(
+        review_store,
+        (output_dir / 'trajectories.jsonl').read_text(encoding='utf-8'),
+        allow_llm=False,
+    )
+    review_trace = review_store.load_trajectory('trace-cli')
+    assert imported['imported'] == ['trace-cli']
+    assert review_trace is not None
+    assert 'Root cause attributed' in render_tool_attribution_page(review_trace)
 
 
 def test_run_dataset_without_annotations_only_writes_predictions(
@@ -117,6 +143,11 @@ def test_run_dataset_without_annotations_only_writes_predictions(
 
     summary = run_dataset(dataset_dir=dataset_dir, output_dir=output_dir)
 
-    assert summary == {'prediction_count': 0, 'evaluated': False}
+    assert summary == {
+        'prediction_count': 0,
+        'trajectory_count': 0,
+        'evaluated': False,
+    }
     assert (output_dir / 'predictions.jsonl').read_text(encoding='utf-8') == ''
+    assert (output_dir / 'trajectories.jsonl').read_text(encoding='utf-8') == ''
     assert not (output_dir / 'report.json').exists()

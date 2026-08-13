@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from .evaluation import (
+    build_file_not_found_review_trajectories,
     evaluate_file_not_found_predictions,
     predict_file_not_found_cases,
 )
@@ -30,9 +31,15 @@ def run_dataset(
         observations,
         traces=traces,
     )
+    trajectories = build_file_not_found_review_trajectories(
+        predictions,
+        observations,
+        traces=traces,
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl_atomic(output_dir / 'predictions.jsonl', predictions)
+    _write_jsonl_atomic(output_dir / 'trajectories.jsonl', trajectories)
 
     annotations_path = dataset_dir / 'annotations.jsonl'
     evaluated = annotations_path.exists()
@@ -43,6 +50,7 @@ def run_dataset(
 
     return {
         'prediction_count': len(predictions),
+        'trajectory_count': len(trajectories),
         'evaluated': evaluated,
     }
 
@@ -85,13 +93,11 @@ def _read_jsonl(path: Path) -> List[Mapping[str, Any]]:
                 value = json.loads(line)
             except json.JSONDecodeError as error:
                 raise ValueError(
-                    'Invalid JSON in %s at line %d: %s'
-                    % (path, line_number, error.msg)
+                    'Invalid JSON in %s at line %d: %s' % (path, line_number, error.msg)
                 ) from error
             if not isinstance(value, dict):
                 raise ValueError(
-                    'Expected a JSON object in %s at line %d.'
-                    % (path, line_number)
+                    'Expected a JSON object in %s at line %d.' % (path, line_number)
                 )
             rows.append(value)
     return rows

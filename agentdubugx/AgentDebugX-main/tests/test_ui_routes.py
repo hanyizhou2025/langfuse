@@ -84,6 +84,89 @@ def test_tool_attribution_page_displays_persisted_evidence(
     assert 'Tool Attribution' in client.get('/trace/trace_failed').text
 
 
+@pytest.mark.parametrize(
+    ('result', 'expected_status', 'expected_detail'),
+    [
+        (
+            {
+                'case_id': 'case-attributed',
+                'trace_id': 'trace_failed',
+                'decision': 'attributed',
+                'semantics': 'unexpected_failure',
+                'is_agent_failure': True,
+                'failure_observation_id': 'evt_tool',
+                'root_cause_observation_id': 'evt_plan',
+                'root_cause_label': 'model_path_hallucination',
+                'root_cause_domain': 'model',
+                'evidence_observation_ids': ['evt_plan', 'evt_tool'],
+                'confidence': 0.95,
+                'reason_codes': ['task_terminated_after_tool_error'],
+            },
+            'Root cause attributed',
+            'model path hallucination',
+        ),
+        (
+            {
+                'case_id': 'case-expected',
+                'trace_id': 'trace_failed',
+                'decision': 'not_agent_failure',
+                'semantics': 'validation_probe',
+                'is_agent_failure': False,
+                'failure_observation_id': 'evt_tool',
+                'root_cause_observation_id': None,
+                'root_cause_label': None,
+                'root_cause_domain': None,
+                'evidence_observation_ids': ['evt_tool'],
+                'confidence': 1.0,
+                'reason_codes': ['expected_error_used_for_validation'],
+            },
+            'Not an agent failure',
+            'validation probe',
+        ),
+        (
+            {
+                'case_id': 'case-unknown',
+                'trace_id': 'trace_failed',
+                'decision': 'unknown',
+                'semantics': 'unknown',
+                'is_agent_failure': None,
+                'failure_observation_id': 'evt_tool',
+                'root_cause_observation_id': None,
+                'root_cause_label': None,
+                'root_cause_domain': None,
+                'evidence_observation_ids': ['evt_tool'],
+                'confidence': 0.0,
+                'reason_codes': ['insufficient_downstream_context'],
+            },
+            'Needs human review',
+            'insufficient downstream context',
+        ),
+    ],
+)
+def test_tool_attribution_page_displays_file_not_found_decisions(
+    tmp_path,
+    monkeypatch,
+    failed_trajectory: AgentTrajectory,
+    result: dict[str, object],
+    expected_status: str,
+    expected_detail: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    failed_trajectory.metadata['langfuse_file_not_found_attributions'] = [result]
+    store = SQLiteTraceStore(str(tmp_path / 'file-not-found.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    client = TestClient(routes.build_app(store))
+
+    response = client.get('/trace/trace_failed/tool-attribution')
+
+    assert response.status_code == 200
+    assert 'File Not Found MVP' in response.text
+    assert expected_status in response.text
+    assert expected_detail in response.text
+    assert 'Failure observation' in response.text
+    assert '/trace/trace_failed/event/evt_tool' in response.text
+
+
 def test_upload_schema_and_native_trace_import(ui_client: TestClient) -> None:
     schema = ui_client.get('/api/v1/schema')
     assert schema.status_code == 200

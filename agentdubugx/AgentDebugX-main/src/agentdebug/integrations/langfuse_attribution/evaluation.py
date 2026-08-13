@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from enum import Enum
+import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from agentdebug.schema import model_to_json
+
+from .historical_converter import convert_historical_langfuse_observations
 from .pipeline import attribute_historical_file_not_found
+from .presentation import attach_file_not_found_attributions
 
 
 def predict_file_not_found_cases(
@@ -56,6 +61,59 @@ def predict_file_not_found_cases(
     return predictions
 
 
+def build_file_not_found_review_trajectories(
+    predictions: Iterable[Mapping[str, Any]],
+    observations: Iterable[Mapping[str, Any]],
+    *,
+    traces: Iterable[Mapping[str, Any]] = (),
+) -> List[Dict[str, Any]]:
+    """Build Inspect-compatible trajectories with persisted MVP decisions."""
+
+    predictions_by_trace: Dict[str, List[Mapping[str, Any]]] = {}
+    trace_order: List[str] = []
+    for prediction in predictions:
+        trace_id = _optional_str(prediction.get('trace_id'))
+        if not trace_id:
+            continue
+        if trace_id not in predictions_by_trace:
+            trace_order.append(trace_id)
+        predictions_by_trace.setdefault(trace_id, []).append(prediction)
+
+    observations_by_trace = _group_observations(observations, traces=traces)
+    trajectories: List[Dict[str, Any]] = []
+    for trace_id in trace_order:
+        converted = convert_historical_langfuse_observations(
+            observations_by_trace.get(trace_id, []),
+            trace_id=trace_id,
+        )
+        attach_file_not_found_attributions(
+            converted.trajectory,
+            predictions_by_trace[trace_id],
+        )
+        trajectories.append(json.loads(model_to_json(converted.trajectory)))
+    return trajectories
+
+
+def _group_observations(
+    observations: Iterable[Mapping[str, Any]],
+    *,
+    traces: Iterable[Mapping[str, Any]] = (),
+) -> Dict[str, List[Dict[str, Any]]]:
+    observations_by_trace: Dict[str, List[Dict[str, Any]]] = {}
+    for observation in observations:
+        normalized = _normalize_observation(observation)
+        trace_id = str(normalized.get('trace_id') or '')
+        observations_by_trace.setdefault(trace_id, []).append(normalized)
+
+    for trace in traces:
+        trace_input = _trace_input_observation(trace)
+        if trace_input is None:
+            continue
+        trace_id = str(trace_input.get('trace_id') or '')
+        observations_by_trace.setdefault(trace_id, []).append(trace_input)
+    return observations_by_trace
+
+
 def evaluate_file_not_found_predictions(
     predictions: Iterable[Mapping[str, Any]],
     annotations: Iterable[Mapping[str, Any]],
@@ -63,8 +121,7 @@ def evaluate_file_not_found_predictions(
     """Compute small-sample counts for semantics, attribution, and abstention."""
 
     prediction_by_case = {
-        str(prediction.get('case_id') or ''): prediction
-        for prediction in predictions
+        str(prediction.get('case_id') or ''): prediction for prediction in predictions
     }
     report: Dict[str, Any] = {
         'case_count': 0,

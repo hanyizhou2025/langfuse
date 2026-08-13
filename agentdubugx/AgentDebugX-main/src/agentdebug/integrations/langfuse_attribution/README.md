@@ -73,8 +73,12 @@ The dataset directory must contain `traces.jsonl`, `cases.jsonl`, and
 `observations.jsonl`. Trace-level input is represented as a stable synthetic
 `<trace-id>:input` user-source event during offline conversion, so a path that
 originated in the trace input is not misclassified as model-generated.
-When `annotations.jsonl` is present, the command also writes `report.json`;
-otherwise it writes only `predictions.jsonl`. The historical converter accepts
-the documented redacted aliases such as `observation_id`, `input_redacted`,
-and `output_redacted`. It returns `unknown` when source or semantic evidence is
-not unique instead of forcing attribution.
+The command always writes `predictions.jsonl` and an Inspect-compatible
+`trajectories.jsonl`. When `annotations.jsonl` is present, it also writes
+`report.json`. Upload `trajectories.jsonl` through **Upload Trace**, open a
+trace, and select **Tool Attribution** to review the semantic decision, failure
+observation, root-cause observation, evidence observations, reason codes, and
+confidence. The historical converter accepts the documented redacted aliases
+such as `observation_id`, `input_redacted`, and `output_redacted`. It returns
+`unknown` when source or semantic evidence is not unique instead of forcing
+attribution.
