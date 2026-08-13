@@ -18,6 +18,11 @@ from .models import (
     ToolFailureEvidence,
     ValueSource,
 )
+from .pipeline import (
+    FileNotFoundAttributionResult,
+    FileNotFoundDecision,
+    attribute_historical_file_not_found,
+)
 from .presentation import (
     ATTRIBUTION_METADATA_KEY,
     attach_tool_attributions,
@@ -32,6 +37,8 @@ __all__ = [
     'FailureCategory',
     'FailureGateDecision',
     'FailureGateResult',
+    'FileNotFoundAttributionResult',
+    'FileNotFoundDecision',
     'LangfuseConversionResult',
     'LangfuseToolAttributor',
     'ParameterSource',
@@ -39,6 +46,7 @@ __all__ = [
     'ToolFailureEvidence',
     'ValueSource',
     'attach_tool_attributions',
+    'attribute_historical_file_not_found',
     'convert_historical_langfuse_observations',
     'convert_langfuse_observations',
     'evaluate_file_not_found_failure',
