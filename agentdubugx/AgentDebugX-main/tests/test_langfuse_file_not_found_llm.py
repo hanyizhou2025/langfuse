@@ -281,3 +281,120 @@ def test_llm_is_skipped_when_only_unredacted_payloads_are_available() -> None:
     assert result.attribution_method == 'deterministic'
     assert 'llm_skipped_unredacted_payload' in result.reason_codes
     assert llm.messages == []
+
+
+def test_llm_cannot_force_attribution_across_conflicting_path_sources() -> None:
+    path = '<PATH_1>/report.md'
+    observations = [
+        _observation(
+            'skill-path',
+            0,
+            observation_type='SPAN',
+            name='report_skill.memory_lookup',
+            output_value={'path': path},
+        ),
+        _observation(
+            'model-path',
+            1,
+            observation_type='GENERATION',
+            name='planner.resolve_path',
+            output_value={'path': path},
+        ),
+        _observation(
+            'failed-read',
+            2,
+            observation_type='TOOL',
+            name='read_file',
+            input_value={'path': path},
+            output_value={'error': 'ENOENT'},
+            level='ERROR',
+            status_message='File not found',
+        ),
+    ]
+    llm = FakeLLM(
+        [
+            {
+                'decision': 'attributed',
+                'semantics': 'unexpected_failure',
+                'is_agent_failure': True,
+                'failure_observation_id': 'failed-read',
+                'root_cause_observation_id': 'skill-path',
+                'root_cause_label': 'upstream_path_invalid',
+                'root_cause_domain': 'upstream',
+                'evidence_observation_ids': [
+                    'skill-path',
+                    'model-path',
+                    'failed-read',
+                ],
+                'confidence': 0.98,
+                'reason_codes': ['earlier_skill_path'],
+            }
+        ]
+    )
+
+    result = FileNotFoundLLMAttributor(llm).attribute(
+        observations,
+        failure_observation_id='failed-read',
+        trace_id='trace-long',
+    )
+
+    assert result.decision == FileNotFoundDecision.UNKNOWN
+    assert result.attribution_method == 'deterministic_fallback'
+    assert 'llm_conflicting_path_sources' in result.reason_codes
+
+
+def test_successful_write_is_lifecycle_evidence_not_a_conflicting_source() -> None:
+    path = '<PATH_1>/ephemeral/report.md'
+    observations = [
+        _observation(
+            'created',
+            0,
+            observation_type='TOOL',
+            name='write_artifact',
+            input_value={'path': path},
+            output_value={'success': True, 'path': path},
+        ),
+        _observation(
+            'cleanup',
+            1,
+            observation_type='SPAN',
+            name='runtime.ephemeral_cleanup',
+            input_value={'path': path},
+            output_value={'deleted': True},
+        ),
+        _observation(
+            'failed-read',
+            2,
+            observation_type='TOOL',
+            name='read_file',
+            input_value={'path': path},
+            output_value={'error': 'ENOENT'},
+            level='ERROR',
+            status_message='File not found',
+        ),
+    ]
+    llm = FakeLLM(
+        [
+            {
+                'decision': 'attributed',
+                'semantics': 'unexpected_failure',
+                'is_agent_failure': True,
+                'failure_observation_id': 'failed-read',
+                'root_cause_observation_id': 'cleanup',
+                'root_cause_label': 'runtime_path_unavailable',
+                'root_cause_domain': 'runtime',
+                'evidence_observation_ids': ['created', 'cleanup', 'failed-read'],
+                'confidence': 0.98,
+                'reason_codes': ['runtime_cleanup'],
+            }
+        ]
+    )
+
+    result = FileNotFoundLLMAttributor(llm).attribute(
+        observations,
+        failure_observation_id='failed-read',
+        trace_id='trace-long',
+    )
+
+    assert result.decision == FileNotFoundDecision.ATTRIBUTED
+    assert result.root_cause_observation_id == 'cleanup'

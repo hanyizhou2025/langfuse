@@ -165,8 +165,8 @@ def build_long_file_not_found_dataset(
     observation_counts: Dict[str, int] = {}
 
     for scenario_index, scenario in enumerate(_SCENARIOS):
-        trace_id = 'trace-long-%02d-%s' % (scenario_index + 1, scenario.name)
-        case_id = 'case-long-%02d-%s' % (scenario_index + 1, scenario.name)
+        trace_id = 'trace-long-%02d' % (scenario_index + 1)
+        case_id = 'case-long-%02d' % (scenario_index + 1)
         trace_time = _BASE_TIME + timedelta(hours=scenario_index)
         traces.append(
             {

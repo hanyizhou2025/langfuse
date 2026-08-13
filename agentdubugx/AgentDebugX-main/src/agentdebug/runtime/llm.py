@@ -12,11 +12,13 @@ a single ``httpx`` POST keeps the install lightweight and lets users target any
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -40,8 +42,7 @@ class LLMClient(Protocol):
         temperature: float = 0.0,
         max_tokens: int = 2048,
         timeout: float = 60.0,
-    ) -> CompletionResult:
-        ...
+    ) -> CompletionResult: ...
 
 
 class EmbeddingClient(Protocol):
@@ -59,8 +60,7 @@ class EmbeddingClient(Protocol):
         texts: List[str],
         *,
         timeout: float = 60.0,
-    ) -> List[List[float]]:
-        ...
+    ) -> List[List[float]]: ...
 
 
 class OpenAICompatClient:
@@ -108,9 +108,11 @@ class OpenAICompatClient:
         Reads ``<PREFIX>_BASE_URL``, ``<PREFIX>_API_KEY``, ``<PREFIX>_MODEL``.
         """
         base_url = os.environ[f'{env_prefix}_BASE_URL']
+        _validate_llm_base_url(base_url)
         api_key = os.environ[f'{env_prefix}_API_KEY']
         model_id: str = (
-            model if model is not None
+            model
+            if model is not None
             else os.environ.get(f'{env_prefix}_MODEL', 'gpt-4o-mini')
         )
         return cls(base_url=base_url, api_key=api_key, model=model_id)
@@ -298,3 +300,39 @@ def extract_json_block(text: str) -> Optional[Dict[str, Any]]:
     except json.JSONDecodeError:
         return None
     return None
+
+
+def _validate_llm_base_url(base_url: str) -> None:
+    """Reject unsafe environment-provided endpoints before outbound requests.
+
+    Public endpoints must use HTTPS. Plain HTTP is allowed only for an exact
+    loopback hostname/IP so local Ollama and LiteLLM development still works.
+    Literal non-loopback IPs are rejected even with HTTPS; custom internal
+    gateways should use an approved DNS name and network-level egress policy.
+    """
+
+    try:
+        parsed = urlsplit(base_url)
+        port = parsed.port
+    except ValueError as error:
+        raise ValueError('LLM base URL is malformed.') from error
+    del port  # Access validates an invalid or out-of-range port.
+    hostname = (parsed.hostname or '').rstrip('.').lower()
+    if parsed.scheme not in {'http', 'https'} or not hostname:
+        raise ValueError('LLM base URL must be an absolute HTTP(S) URL.')
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError('LLM base URL must not contain credentials.')
+    if parsed.query or parsed.fragment:
+        raise ValueError('LLM base URL must not contain a query or fragment.')
+
+    is_allowed_loopback = hostname == 'localhost'
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address is not None:
+        is_allowed_loopback = hostname in {'127.0.0.1', '::1'}
+        if not is_allowed_loopback:
+            raise ValueError('LLM base URL cannot use a non-loopback IP address.')
+    if parsed.scheme != 'https' and not is_allowed_loopback:
+        raise ValueError('LLM base URL must use HTTPS outside loopback.')

@@ -82,3 +82,59 @@ confidence. The historical converter accepts the documented redacted aliases
 such as `observation_id`, `input_redacted`, and `output_redacted`. It returns
 `unknown` when source or semantic evidence is not unique instead of forcing
 attribution.
+
+## Optional LLM enhancement
+
+Ambiguous cases can be reviewed by any OpenAI-compatible public model API:
+
+```bash
+export AGENTDEBUG_LLM_BASE_URL="https://api.example.com/v1"
+export AGENTDEBUG_LLM_API_KEY="..."
+export AGENTDEBUG_LLM_MODEL="your-model"
+
+PYTHONPATH=src python -m agentdebug.integrations.langfuse_attribution.cli \
+  /path/to/dataset /path/to/outputs --llm
+```
+
+The default hybrid policy sends only deterministic `unknown` cases to the
+model. Add `--review-deterministic` to review every case. Only observations
+containing the complete `input_redacted`, `output_redacted`, and
+`status_message_redacted` contract are model eligible. Context retrieval is
+capped at 64 observations per case by default. Returned observation IDs,
+labels, domains, decision invariants, and evidence are validated locally; an
+invalid model response falls back to the deterministic result.
+
+API keys are read from the process environment and are never added to stored
+predictions. Environment-configured public endpoints must use HTTPS and cannot
+contain URL credentials, query strings, fragments, or literal non-loopback IP
+addresses. Exact loopback endpoints (`localhost`, `127.0.0.1`, and `::1`) may
+use HTTP for local Ollama or LiteLLM development.
+
+## Reproduce the synthetic long-trace experiment
+
+Generate 12 redacted traces with at least 500 observations each:
+
+```bash
+PYTHONPATH=src python -m \
+  agentdebug.integrations.langfuse_attribution.long_dataset \
+  /tmp/agentdebugx-long-dataset --noise-observations 800
+```
+
+For model backends that support one structured batch call, prepare a
+label-free prompt and validate its response afterward:
+
+```bash
+PYTHONPATH=src python -m \
+  agentdebug.integrations.langfuse_attribution.experiment prepare \
+  /tmp/agentdebugx-long-dataset /tmp/agentdebugx-long-artifacts --review-all
+
+# Send batch_prompt.txt using batch_response_schema.json, then:
+PYTHONPATH=src python -m \
+  agentdebug.integrations.langfuse_attribution.experiment evaluate \
+  /tmp/agentdebugx-long-dataset /tmp/agentdebugx-long-artifacts \
+  /tmp/batch-response.json /tmp/agentdebugx-long-results \
+  --model your-model
+```
+
+Synthetic annotations remain in a separate file and never enter the model
+request.

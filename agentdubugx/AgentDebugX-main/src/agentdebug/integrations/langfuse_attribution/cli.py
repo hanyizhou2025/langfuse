@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
+from agentdebug.runtime.llm import LLMClient, OpenAICompatClient
+
 from .evaluation import (
     build_file_not_found_review_trajectories,
     evaluate_file_not_found_predictions,
@@ -20,6 +22,9 @@ def run_dataset(
     *,
     dataset_dir: Path,
     output_dir: Path,
+    llm: Optional[LLMClient] = None,
+    review_deterministic: bool = False,
+    max_context_observations: int = 64,
 ) -> Dict[str, Any]:
     """Run predictions and optional evaluation for one frozen dataset."""
 
@@ -30,6 +35,9 @@ def run_dataset(
         cases,
         observations,
         traces=traces,
+        llm=llm,
+        review_deterministic=review_deterministic,
+        max_context_observations=max_context_observations,
     )
     trajectories = build_file_not_found_review_trajectories(
         predictions,
@@ -48,11 +56,23 @@ def run_dataset(
         report = evaluate_file_not_found_predictions(predictions, annotations)
         _write_json_atomic(output_dir / 'report.json', report)
 
-    return {
+    summary = {
         'prediction_count': len(predictions),
         'trajectory_count': len(trajectories),
         'evaluated': evaluated,
     }
+    if llm is not None:
+        summary.update(
+            {
+                'llm_enabled': True,
+                'llm_review_count': sum(
+                    str(prediction.get('attribution_method') or '').startswith('llm_')
+                    or prediction.get('attribution_method') == 'deterministic_fallback'
+                    for prediction in predictions
+                ),
+            }
+        )
+    return summary
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -71,10 +91,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         type=Path,
         help='Directory for predictions.jsonl and optional report.json.',
     )
+    parser.add_argument(
+        '--llm',
+        action='store_true',
+        help=(
+            'Enhance ambiguous cases through AGENTDEBUG_LLM_BASE_URL, '
+            'AGENTDEBUG_LLM_API_KEY, and AGENTDEBUG_LLM_MODEL.'
+        ),
+    )
+    parser.add_argument(
+        '--review-deterministic',
+        action='store_true',
+        help='Also ask the LLM to review deterministic decisions.',
+    )
+    parser.add_argument(
+        '--max-context-observations',
+        type=int,
+        default=64,
+        help='Maximum causally retrieved observations sent per LLM call.',
+    )
     args = parser.parse_args(argv)
+    llm = OpenAICompatClient.from_env() if args.llm else None
     summary = run_dataset(
         dataset_dir=args.dataset_dir,
         output_dir=args.output_dir,
+        llm=llm,
+        review_deterministic=args.review_deterministic,
+        max_context_observations=args.max_context_observations,
     )
     print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0

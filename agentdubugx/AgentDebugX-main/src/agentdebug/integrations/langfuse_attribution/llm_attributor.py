@@ -200,6 +200,17 @@ class FileNotFoundLLMAttributor:
                 reason_code=error_code,
                 raw=completion.raw,
             )
+        if validated['decision'] == 'attributed' and _has_conflicting_path_sources(
+            observation_list,
+            failure_observation_id=failure_observation_id,
+        ):
+            return _fallback(
+                baseline,
+                model=self.llm.model,
+                reviewed_count=reviewed_count,
+                reason_code='llm_conflicting_path_sources',
+                raw=completion.raw,
+            )
 
         usage = _usage(completion.raw)
         return FileNotFoundAttributionResult(
@@ -329,7 +340,9 @@ def _render_prompt(
                 'name': item.get('name'),
                 'start_time': str(item.get('start_time') or ''),
                 'level': item.get('level'),
-                'status': _truncate(item.get('status_message_redacted'), max_value_chars),
+                'status': _truncate(
+                    item.get('status_message_redacted'), max_value_chars
+                ),
                 'input': _truncate(item.get('input_redacted'), max_value_chars),
                 'output': _truncate(item.get('output_redacted'), max_value_chars),
             }
@@ -490,14 +503,65 @@ def _redacted_search_text(observation: Mapping[str, Any]) -> str:
         observation.get('output_redacted'),
         observation.get('status_message_redacted'),
     )
-    return ' '.join(json.dumps(value, ensure_ascii=False, default=str) for value in values)
+    return ' '.join(
+        json.dumps(value, ensure_ascii=False, default=str) for value in values
+    )
+
+
+def _has_conflicting_path_sources(
+    observations: Sequence[Mapping[str, Any]],
+    *,
+    failure_observation_id: str,
+) -> bool:
+    failure = next(
+        (
+            item
+            for item in observations
+            if _observation_id(item) == failure_observation_id
+        ),
+        None,
+    )
+    if failure is None:
+        return False
+    failed_path = _extract_path(failure.get('input_redacted'))
+    if not failed_path:
+        return False
+    domains = {
+        domain
+        for item in observations
+        if _observation_id(item) != failure_observation_id
+        and failed_path in _redacted_search_text(item)
+        for domain in [_source_domain(item)]
+        if domain is not None
+    }
+    return len(domains) > 1
+
+
+def _source_domain(observation: Mapping[str, Any]) -> Optional[str]:
+    observation_type = str(observation.get('type') or '').upper()
+    name = str(observation.get('name') or '').lower()
+    if observation_type == 'TOOL' and any(
+        token in name for token in ('create', 'write', 'touch', 'save')
+    ):
+        return None
+    if observation_type == 'GENERATION':
+        return 'model'
+    if any(token in name for token in ('user', 'human')):
+        return 'user'
+    if any(token in name for token in ('skill', 'memory', 'artifact', 'registry')):
+        return 'upstream'
+    if any(token in name for token in ('runtime', 'mount', 'environment', 'cwd')):
+        return 'runtime'
+    return None
 
 
 def _truncate(value: Any, limit: int) -> Any:
     if isinstance(value, str):
         return value if len(value) <= limit else value[:limit] + '…'
     if isinstance(value, Mapping):
-        return {str(key): _truncate(item, limit) for key, item in list(value.items())[:20]}
+        return {
+            str(key): _truncate(item, limit) for key, item in list(value.items())[:20]
+        }
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return [_truncate(item, limit) for item in list(value)[:20]]
     return value

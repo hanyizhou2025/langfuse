@@ -5,9 +5,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agentdebug.integrations.langfuse_attribution import (
-    build_long_file_not_found_dataset,
     evaluate_file_not_found_predictions,
     predict_file_not_found_cases,
+)
+from agentdebug.integrations.langfuse_attribution.long_dataset import (
+    build_long_file_not_found_dataset,
     write_long_file_not_found_dataset,
 )
 from agentdebug.runtime.llm import CompletionResult
@@ -72,6 +74,19 @@ def test_long_dataset_has_complex_scenarios_and_redacted_payloads() -> None:
         and 'output' not in observation
         for observation in dataset.observations
     )
+    annotations = {
+        annotation['case_id']: annotation for annotation in dataset.annotations
+    }
+    for case in dataset.cases:
+        scenario = str(annotations[case['case_id']]['scenario'])
+        trace_id = str(case['trace_id'])
+        assert scenario not in str(case['case_id'])
+        assert scenario not in trace_id
+        assert all(
+            scenario not in str(observation['observation_id'])
+            for observation in dataset.observations
+            if observation['trace_id'] == trace_id
+        )
 
 
 def test_long_dataset_can_be_written_as_standard_jsonl(tmp_path: Path) -> None:

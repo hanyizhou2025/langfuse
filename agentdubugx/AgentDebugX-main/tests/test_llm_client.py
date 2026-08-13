@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from agentdebug.runtime.llm import OpenAICompatClient, extract_json_block
 
 
@@ -140,3 +142,43 @@ def test_from_env_and_json_extraction(monkeypatch) -> None:
     assert extract_json_block('```json\n{"ok": true}\n```') == {'ok': True}
     assert extract_json_block('prefix {"ok": true} suffix') == {'ok': True}
     assert extract_json_block('not json') is None
+
+
+@pytest.mark.parametrize(
+    'base_url',
+    [
+        'http://public.example.com/v1',
+        'https://user:secret@public.example.com/v1',
+        'https://127.0.0.2/v1',
+        'https://10.10.0.3/v1',
+        'https://api.example.com/v1?token=secret',
+        'file:///private/model',
+    ],
+)
+def test_from_env_rejects_unsafe_base_urls(monkeypatch, base_url: str) -> None:
+    monkeypatch.setenv('CUSTOM_BASE_URL', base_url)
+    monkeypatch.setenv('CUSTOM_API_KEY', 'test-key')
+
+    with pytest.raises(ValueError, match='LLM base URL'):
+        OpenAICompatClient.from_env(env_prefix='CUSTOM')
+
+
+@pytest.mark.parametrize(
+    'base_url',
+    [
+        'https://api.openai.com/v1',
+        'http://127.0.0.1:11434/v1',
+        'http://localhost:4000/v1',
+        'http://[::1]:11434/v1',
+    ],
+)
+def test_from_env_accepts_https_or_loopback_base_urls(
+    monkeypatch,
+    base_url: str,
+) -> None:
+    monkeypatch.setenv('CUSTOM_BASE_URL', base_url)
+    monkeypatch.setenv('CUSTOM_API_KEY', 'test-key')
+
+    client = OpenAICompatClient.from_env(env_prefix='CUSTOM')
+
+    assert client.base_url == base_url
