@@ -14,6 +14,11 @@ from .evaluation import (
 )
 from .historical_converter import convert_historical_langfuse_observations
 from .llm_attributor import FileNotFoundLLMAttributor
+from .long_dataset import (
+    LongFileNotFoundDataset,
+    build_long_file_not_found_dataset,
+    write_long_file_not_found_dataset,
+)
 from .models import (
     CauseKind,
     ConversionEvidence,
@@ -53,6 +58,7 @@ __all__ = [
     'FileNotFoundLLMAttributor',
     'LangfuseConversionResult',
     'LangfuseToolAttributor',
+    'LongFileNotFoundDataset',
     'ParameterSource',
     'ToolFailureAttribution',
     'ToolFailureEvidence',
@@ -61,6 +67,7 @@ __all__ = [
     'attach_tool_attributions',
     'attribute_historical_file_not_found',
     'build_file_not_found_review_trajectories',
+    'build_long_file_not_found_dataset',
     'convert_historical_langfuse_observations',
     'convert_langfuse_observations',
     'evaluate_file_not_found_failure',
@@ -70,4 +77,5 @@ __all__ = [
     'predict_file_not_found_cases',
     'tool_attribution_summaries',
     'tool_attribution_to_dict',
+    'write_long_file_not_found_dataset',
 ]

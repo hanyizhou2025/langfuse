@@ -7,9 +7,11 @@ from enum import Enum
 import json
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from agentdebug.runtime.llm import LLMClient
 from agentdebug.schema import model_to_json
 
 from .historical_converter import convert_historical_langfuse_observations
+from .llm_attributor import FileNotFoundLLMAttributor
 from .pipeline import attribute_historical_file_not_found
 from .presentation import attach_file_not_found_attributions
 
@@ -19,6 +21,9 @@ def predict_file_not_found_cases(
     observations: Iterable[Mapping[str, Any]],
     *,
     traces: Iterable[Mapping[str, Any]] = (),
+    llm: Optional[LLMClient] = None,
+    review_deterministic: bool = False,
+    max_context_observations: int = 64,
 ) -> List[Dict[str, Any]]:
     """Predict dataset cases using the documented redacted JSONL shape."""
 
@@ -35,6 +40,15 @@ def predict_file_not_found_cases(
         trace_id = str(trace_input.get('trace_id') or '')
         observations_by_trace.setdefault(trace_id, []).append(trace_input)
 
+    llm_attributor = (
+        FileNotFoundLLMAttributor(
+            llm,
+            review_deterministic=review_deterministic,
+            max_context_observations=max_context_observations,
+        )
+        if llm is not None
+        else None
+    )
     predictions: List[Dict[str, Any]] = []
     for case in cases:
         case_id = _optional_str(case.get('case_id'))
@@ -51,11 +65,21 @@ def predict_file_not_found_cases(
             )
             continue
 
-        result = attribute_historical_file_not_found(
-            observations_by_trace.get(trace_id, []),
-            failure_observation_id=failure_observation_id,
-            case_id=case_id,
-            trace_id=trace_id,
+        trace_observations = observations_by_trace.get(trace_id, [])
+        result = (
+            llm_attributor.attribute(
+                trace_observations,
+                failure_observation_id=failure_observation_id,
+                case_id=case_id,
+                trace_id=trace_id,
+            )
+            if llm_attributor is not None
+            else attribute_historical_file_not_found(
+                trace_observations,
+                failure_observation_id=failure_observation_id,
+                case_id=case_id,
+                trace_id=trace_id,
+            )
         )
         predictions.append(_serialize_result(result))
     return predictions
@@ -223,16 +247,21 @@ def _trace_input_observation(trace: Mapping[str, Any]) -> Optional[Dict[str, Any
         return None
     return {
         'id': '%s:input' % trace_id,
+        'observation_id': '%s:input' % trace_id,
         'trace_id': trace_id,
         'parent_observation_id': None,
         'type': 'SPAN',
         'name': 'user.request',
         'start_time': trace.get('timestamp'),
         'input': input_value,
+        'input_redacted': input_value,
         'output': None,
+        'output_redacted': None,
         'metadata': {'synthetic_role': 'trace_input'},
+        'metadata_redacted': {'synthetic_role': 'trace_input'},
         'level': 'DEFAULT',
         'status_message': None,
+        'status_message_redacted': None,
     }
 
 
