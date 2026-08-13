@@ -83,6 +83,58 @@ def test_predict_cases_accepts_redacted_dataset_shape() -> None:
     assert predictions[0]['root_cause_observation_id'] == 'generation'
 
 
+def test_predict_cases_uses_trace_input_as_user_path_source() -> None:
+    path = '<PATH_1>/user-provided.md'
+    case = {
+        'case_id': 'case-user',
+        'trace_id': 'trace-user',
+        'tool_attempt': {'tool_result_observation_id': 'failed-read'},
+    }
+    traces = [
+        {
+            'trace_id': 'trace-user',
+            'timestamp': '2026-01-01T00:00:00Z',
+            'input_redacted': {'message': 'Read %s' % path},
+            'output_redacted': {'message': 'Unable to read file.'},
+        }
+    ]
+    observations = [
+        {
+            **_observation(
+                'generation',
+                1,
+                observation_type='GENERATION',
+                name='planner',
+                output_value={'tool': 'read_file', 'path': path},
+            ),
+            'trace_id': 'trace-user',
+        },
+        {
+            **_observation(
+                'failed-read',
+                2,
+                observation_type='TOOL',
+                name='read_file',
+                input_value={'path': path},
+                output_value={'error': 'ENOENT'},
+                level='ERROR',
+                status_message='File not found',
+            ),
+            'trace_id': 'trace-user',
+        },
+    ]
+
+    predictions = predict_file_not_found_cases(
+        [case],
+        observations,
+        traces=traces,
+    )
+
+    assert predictions[0]['decision'] == 'attributed'
+    assert predictions[0]['root_cause_label'] == 'user_path_invalid'
+    assert predictions[0]['root_cause_observation_id'] == 'trace-user:input'
+
+
 def test_evaluation_reports_layered_counts() -> None:
     predictions = [
         {

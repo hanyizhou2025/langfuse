@@ -24,7 +24,12 @@ def run_dataset(
 
     cases = _read_jsonl(dataset_dir / 'cases.jsonl')
     observations = _read_jsonl(dataset_dir / 'observations.jsonl')
-    predictions = predict_file_not_found_cases(cases, observations)
+    traces = _read_jsonl(dataset_dir / 'traces.jsonl')
+    predictions = predict_file_not_found_cases(
+        cases,
+        observations,
+        traces=traces,
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl_atomic(output_dir / 'predictions.jsonl', predictions)
@@ -51,7 +56,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         'dataset_dir',
         type=Path,
-        help='Directory containing cases.jsonl and observations.jsonl.',
+        help='Directory containing traces, cases, and observations JSONL files.',
     )
     parser.add_argument(
         'output_dir',

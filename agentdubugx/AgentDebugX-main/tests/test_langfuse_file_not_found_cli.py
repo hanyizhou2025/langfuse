@@ -20,6 +20,17 @@ def test_run_dataset_writes_predictions_and_report(tmp_path: Path) -> None:
     path = '<PATH_1>/missing.md'
 
     _write_jsonl(
+        dataset_dir / 'traces.jsonl',
+        [
+            {
+                'trace_id': 'trace-cli',
+                'timestamp': '2026-01-01T00:00:00Z',
+                'input_redacted': {'task': 'Summarize the report.'},
+                'output_redacted': {'message': 'Unable to read file.'},
+            }
+        ],
+    )
+    _write_jsonl(
         dataset_dir / 'cases.jsonl',
         [
             {
@@ -102,6 +113,7 @@ def test_run_dataset_without_annotations_only_writes_predictions(
     dataset_dir.mkdir()
     _write_jsonl(dataset_dir / 'cases.jsonl', [])
     _write_jsonl(dataset_dir / 'observations.jsonl', [])
+    _write_jsonl(dataset_dir / 'traces.jsonl', [])
 
     summary = run_dataset(dataset_dir=dataset_dir, output_dir=output_dir)
 
