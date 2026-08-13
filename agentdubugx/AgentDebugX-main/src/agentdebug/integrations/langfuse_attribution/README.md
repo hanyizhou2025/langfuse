@@ -57,3 +57,21 @@ attributions = LangfuseToolAttributor().attribute(converted.evidence)
 
 The attributor is deterministic and emits `unknown` if source lineage or a
 required execution fact is absent. It does not use an LLM or a database.
+
+## Historical File Not Found datasets
+
+For frozen production-trace datasets that do not yet contain the explicit
+`metadata.attribution` contract, run the conservative historical pipeline:
+
+```bash
+PYTHONPATH=src python -m agentdebug.integrations.langfuse_attribution.cli \
+  /path/to/dataset \
+  /path/to/outputs
+```
+
+The dataset directory must contain `cases.jsonl` and `observations.jsonl`.
+When `annotations.jsonl` is present, the command also writes `report.json`;
+otherwise it writes only `predictions.jsonl`. The historical converter accepts
+the documented redacted aliases such as `observation_id`, `input_redacted`,
+and `output_redacted`. It returns `unknown` when source or semantic evidence is
+not unique instead of forcing attribution.
