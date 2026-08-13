@@ -49,6 +49,41 @@ def test_health_trace_and_taxonomy_routes(ui_client: TestClient) -> None:
     assert ui_client.get('/api/v1/taxonomy').json()['modes']
 
 
+def test_tool_attribution_page_displays_persisted_evidence(
+    tmp_path,
+    monkeypatch,
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    failed_trajectory.metadata['langfuse_tool_attributions'] = [
+        {
+            'tool_name': 'read_file',
+            'failure_event_id': 'evt_tool',
+            'failure_category': 'resource_not_found',
+            'primary_cause': 'model_argument_hallucination',
+            'confidence': 0.95,
+            'source_observation_id': 'evt_plan',
+            'evidence': [
+                "Tool 'read_file' reported ENOENT.",
+                "Resource for argument 'path' does not exist before execution.",
+            ],
+        }
+    ]
+    store = SQLiteTraceStore(str(tmp_path / 'attribution.sqlite'))
+    store.save_trajectory(failed_trajectory)
+    client = TestClient(routes.build_app(store))
+
+    response = client.get('/trace/trace_failed/tool-attribution')
+
+    assert response.status_code == 200
+    assert 'Tool Attribution' in response.text
+    assert 'model argument hallucination' in response.text
+    assert 'Resource for argument' in response.text
+    assert 'does not exist before execution.' in response.text
+    assert 'Back to trace' in response.text
+    assert 'Tool Attribution' in client.get('/trace/trace_failed').text
+
+
 def test_upload_schema_and_native_trace_import(ui_client: TestClient) -> None:
     schema = ui_client.get('/api/v1/schema')
     assert schema.status_code == 200

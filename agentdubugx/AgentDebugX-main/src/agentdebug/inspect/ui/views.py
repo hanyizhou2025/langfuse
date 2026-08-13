@@ -13,6 +13,7 @@ from agentdebug.inspect.ui.services import (
     build_overview,
 )
 from agentdebug.runtime import TraceStore
+from agentdebug.schema import AgentTrajectory
 
 
 def render_page(
@@ -61,6 +62,97 @@ def _build_bootstrap(
 
 def _build_overview_panel(overview: Dict[str, Any]) -> str:
     return ''
+
+
+def render_tool_attribution_page(trajectory: AgentTrajectory) -> str:
+    """Render persisted, display-safe tool attribution summaries for one trace."""
+
+    from urllib.parse import quote
+
+    from agentdebug.integrations.langfuse_attribution import (
+        ATTRIBUTION_METADATA_KEY,
+        tool_attribution_summaries,
+    )
+
+    trace_id = str(trajectory.trace_id)
+    trace_href = '/trace/' + quote(trace_id, safe='')
+    summaries = tool_attribution_summaries(
+        (trajectory.metadata or {}).get(ATTRIBUTION_METADATA_KEY)
+    )
+    cards = ''.join(
+        _tool_attribution_card(summary, trace_id) for summary in summaries
+    )
+    if not cards:
+        cards = (
+            '<section class="empty"><strong>No tool attribution evidence recorded.</strong>'
+            '<p>This trace can still show generic DebugX findings. Record '
+            '<code>metadata.attribution</code> during tool execution to enable '
+            'source-aware attribution.</p></section>'
+        )
+    return _TOOL_ATTRIBUTION_HTML.replace('__TRACE_ID__', html_escape(trace_id)).replace(
+        '__TRACE_HREF__', html_escape(trace_href, quote=True)
+    ).replace('__ATTRIBUTION_CARDS__', cards)
+
+
+def _tool_attribution_card(summary: Dict[str, Any], trace_id: str) -> str:
+    from urllib.parse import quote
+
+    tool_name = str(summary.get('tool_name') or 'unknown tool')
+    category = _humanize(summary.get('failure_category'))
+    cause = _humanize(summary.get('primary_cause'))
+    confidence = summary.get('confidence')
+    try:
+        confidence_text = f'{float(confidence) * 100:.0f}%'
+    except (TypeError, ValueError):
+        confidence_text = 'unknown'
+    source_id = str(summary.get('source_observation_id') or 'not recorded')
+    failure_event_id = str(summary.get('failure_event_id') or '')
+    evidence = summary.get('evidence')
+    evidence_items = evidence if isinstance(evidence, list) else []
+    rendered_evidence = ''.join(
+        '<li>' + html_escape(str(item)) + '</li>' for item in evidence_items
+    ) or '<li>No evidence was persisted.</li>'
+    failure_href = (
+        '/trace/' + quote(trace_id, safe='') + '/event/'
+        + quote(failure_event_id, safe='')
+        if failure_event_id
+        else ''
+    )
+    event_link = (
+        '<a class="event-link" href="' + html_escape(failure_href, quote=True)
+        + '">Open failed tool event</a>'
+        if failure_href
+        else ''
+    )
+    return (
+        '<article class="attribution-card">'
+        '<div class="card-heading"><div><span class="eyebrow">Tool failure</span>'
+        '<h2>' + html_escape(tool_name) + '</h2></div>'
+        '<span class="confidence">' + html_escape(confidence_text) + ' confidence</span></div>'
+        '<dl><div><dt>Technical failure</dt><dd>' + html_escape(category) + '</dd></div>'
+        '<div><dt>Primary cause</dt><dd class="cause">' + html_escape(cause) + '</dd></div>'
+        '<div><dt>Source observation</dt><dd class="mono">' + html_escape(source_id) + '</dd></div></dl>'
+        '<h3>Evidence</h3><ul>' + rendered_evidence + '</ul>' + event_link + '</article>'
+    )
+
+
+def _humanize(value: Any) -> str:
+    return str(value or 'unknown').replace('_', ' ')
+
+
+_TOOL_ATTRIBUTION_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tool Attribution · AgentDebugX</title>
+<style>
+:root { color-scheme: dark; --bg:#091117; --panel:#101b24; --line:#263946; --text:#e8f1f5; --muted:#9aadb9; --cyan:#72e8f4; --gold:#f0c76a; }
+* { box-sizing:border-box; } body { margin:0; min-height:100vh; background:radial-gradient(circle at top,#152938,#091117 45%); color:var(--text); font-family:Inter,"SF Pro Text",system-ui,sans-serif; }
+main { width:min(960px,calc(100% - 36px)); margin:0 auto; padding:48px 0 72px; }
+.back { display:inline-flex; color:var(--cyan); text-decoration:none; font-weight:650; margin:0 14px 28px 0; } .eyebrow { color:var(--cyan); font-size:12px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+h1 { margin:8px 0; font-size:32px; } .lead { margin:0 0 30px; color:var(--muted); } .attribution-card,.empty { background:rgba(16,27,36,.96); border:1px solid var(--line); border-radius:14px; padding:24px; box-shadow:0 16px 40px rgba(0,0,0,.2); }
+.card-heading { display:flex; justify-content:space-between; gap:18px; align-items:start; } h2 { margin:4px 0 0; font-size:23px; } .confidence { color:#101820; background:var(--cyan); border-radius:999px; padding:5px 9px; font-size:12px; font-weight:800; white-space:nowrap; }
+dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:22px 0; } dl div { border:1px solid var(--line); border-radius:9px; padding:12px; } dt { color:var(--muted); font-size:12px; } dd { margin:6px 0 0; font-weight:700; } .cause { color:var(--gold); } .mono { font-family:ui-monospace,SFMono-Regular,monospace; font-size:13px; } h3 { margin:22px 0 8px; font-size:14px; } ul { margin:0; padding-left:20px; color:var(--muted); line-height:1.55; } .event-link { display:inline-flex; margin-top:22px; border:1px solid var(--cyan); border-radius:8px; color:var(--cyan); padding:8px 10px; font-size:13px; font-weight:700; text-decoration:none; } code { color:var(--cyan); } @media (max-width:680px) { main { width:min(100% - 24px,960px); padding-top:28px; } dl { grid-template-columns:1fr; } .card-heading { flex-direction:column; } }
+</style></head><body><main><a class="back" href="__TRACE_HREF__">← Back to trace</a><span class="eyebrow">Evidence-backed diagnosis</span><h1>Tool Attribution</h1><p class="lead">Trace: <span class="mono">__TRACE_ID__</span></p>__ATTRIBUTION_CARDS__</main></body></html>"""
 
 
 
@@ -6551,6 +6643,7 @@ function renderDiagnosisPanel(report, findings, selectedEvent, events) {
   html += miniCompact('Stage', selectedEvent?.module || 'module');
   html += miniCompact('Event', selectedEvent?.event_type || 'event');
   html += '</div>';
+  html += '<div class="diagnosis-section"><a class="workspace-launcher" href="/trace/' + encodeURIComponent(CURRENT_TRACE_ID || '') + '/tool-attribution" aria-label="Open Tool Attribution">Tool Attribution</a></div>';
   if (!hasIssue) {
     html += '<div class="diagnosis-section diagnosis-next-step"><div class="diagnosis-label">Next useful action</div><div class="diagnosis-copy">No local detector signal here. Continue along the timeline, or jump to the next error/root event before opening raw details.</div></div>';
     html += '</aside>';

@@ -29,10 +29,17 @@ from agentdebug.integrations.openhands import (
     OpenHandsBridge,
     OpenHandsMicroagentContract,
 )
+from agentdebug.integrations.langfuse_attribution import (
+    CauseKind,
+    LangfuseToolAttributor,
+    convert_langfuse_observations,
+)
 
 __all__ = [
     'CAPABILITIES_TEMPLATE',
+    'CauseKind',
     'DebugSkillBundle',
+    'LangfuseToolAttributor',
     'OpenHandsBridge',
     'OpenHandsMicroagentContract',
     'SKILL_TEMPLATE',
@@ -40,6 +47,7 @@ __all__ = [
     'SkillPlatform',
     'build_debug_skill_bundle',
     'build_skill_bundle',
+    'convert_langfuse_observations',
     'write_debug_skill_bundle',
     'write_skill_bundle',
 ]

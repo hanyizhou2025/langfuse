@@ -30,7 +30,11 @@ from agentdebug.inspect.ui.services import (
     _ui_runtime_status,
     build_overview,
 )
-from agentdebug.inspect.ui.views import render_page, render_space_page
+from agentdebug.inspect.ui.views import (
+    render_page,
+    render_space_page,
+    render_tool_attribution_page,
+)
 from agentdebug.inspect.ui.llm_convert import schema_payload
 from agentdebug.inspect.ui.upload import MAX_UPLOAD_BYTES, import_upload_text
 from agentdebug.runtime import TraceStore
@@ -229,6 +233,13 @@ def build_app(store: TraceStore) -> Any:
         if trajectory is None:
             raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
         return render_page(store, view='trace', trace_id=trace_id)
+
+    @app.get('/trace/{trace_id}/tool-attribution', response_class=HTMLResponse)
+    def tool_attribution_page(trace_id: str) -> str:
+        trajectory = store.load_trajectory(trace_id)
+        if trajectory is None:
+            raise HTTPException(status_code=404, detail=f'unknown trace_id: {trace_id}')
+        return render_tool_attribution_page(trajectory)
 
     @app.get('/trace/{trace_id}/event/{event_id}', response_class=HTMLResponse)
     def trace_event_page(trace_id: str, event_id: str) -> str:
