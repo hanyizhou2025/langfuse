@@ -1,0 +1,189 @@
+"""Dataset adapters and layered metrics for file-not-found attribution."""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+from enum import Enum
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+from .pipeline import attribute_historical_file_not_found
+
+
+def predict_file_not_found_cases(
+    cases: Iterable[Mapping[str, Any]],
+    observations: Iterable[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Predict dataset cases using the documented redacted JSONL shape."""
+
+    observations_by_trace: Dict[str, List[Dict[str, Any]]] = {}
+    for observation in observations:
+        normalized = _normalize_observation(observation)
+        trace_id = str(normalized.get('trace_id') or '')
+        observations_by_trace.setdefault(trace_id, []).append(normalized)
+
+    predictions: List[Dict[str, Any]] = []
+    for case in cases:
+        case_id = _optional_str(case.get('case_id'))
+        trace_id = _optional_str(case.get('trace_id')) or ''
+        failure_observation_id = _failure_observation_id(case)
+        if not case_id or not trace_id or not failure_observation_id:
+            predictions.append(
+                {
+                    'case_id': case_id,
+                    'trace_id': trace_id,
+                    'decision': 'invalid_case',
+                    'reason_codes': ['missing_case_identity_or_failure_id'],
+                }
+            )
+            continue
+
+        result = attribute_historical_file_not_found(
+            observations_by_trace.get(trace_id, []),
+            failure_observation_id=failure_observation_id,
+            case_id=case_id,
+            trace_id=trace_id,
+        )
+        predictions.append(_serialize_result(result))
+    return predictions
+
+
+def evaluate_file_not_found_predictions(
+    predictions: Iterable[Mapping[str, Any]],
+    annotations: Iterable[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Compute small-sample counts for semantics, attribution, and abstention."""
+
+    prediction_by_case = {
+        str(prediction.get('case_id') or ''): prediction
+        for prediction in predictions
+    }
+    report: Dict[str, Any] = {
+        'case_count': 0,
+        'missing_prediction_count': 0,
+        'semantic_negative': {
+            'correct': 0,
+            'total': 0,
+            'forced_attribution': 0,
+        },
+        'attribution': {
+            'label_correct': 0,
+            'root_observation_correct': 0,
+            'total': 0,
+        },
+        'abstention': {
+            'correct': 0,
+            'total': 0,
+        },
+    }
+
+    for annotation in annotations:
+        report['case_count'] += 1
+        case_id = str(annotation.get('case_id') or '')
+        prediction = prediction_by_case.get(case_id)
+        if prediction is None:
+            report['missing_prediction_count'] += 1
+            continue
+
+        human_label = _nested_value(
+            annotation,
+            'technical_error_review',
+            'human_label',
+        )
+        is_agent_failure = _nested_value(
+            annotation,
+            'semantic_outcome',
+            'is_agent_failure',
+        )
+        attribution_applicable = bool(
+            _nested_value(annotation, 'attribution', 'applicable')
+        )
+        decision = str(prediction.get('decision') or '')
+
+        if human_label == 'insufficient_evidence' or is_agent_failure is None:
+            report['abstention']['total'] += 1
+            if decision == 'unknown':
+                report['abstention']['correct'] += 1
+            continue
+
+        if is_agent_failure is False:
+            report['semantic_negative']['total'] += 1
+            if decision == 'not_agent_failure':
+                report['semantic_negative']['correct'] += 1
+            if decision == 'attributed':
+                report['semantic_negative']['forced_attribution'] += 1
+            continue
+
+        if is_agent_failure is True and attribution_applicable:
+            report['attribution']['total'] += 1
+            expected_label = _nested_value(
+                annotation,
+                'attribution',
+                'root_cause_label',
+            )
+            expected_root = _nested_value(
+                annotation,
+                'attribution',
+                'primary_root_cause_observation_id',
+            )
+            if prediction.get('root_cause_label') == expected_label:
+                report['attribution']['label_correct'] += 1
+            if prediction.get('root_cause_observation_id') == expected_root:
+                report['attribution']['root_observation_correct'] += 1
+
+    return report
+
+
+def _normalize_observation(observation: Mapping[str, Any]) -> Dict[str, Any]:
+    """Map the documented redacted export back to converter field names."""
+
+    normalized = dict(observation)
+    aliases = {
+        'observation_id': 'id',
+        'input_redacted': 'input',
+        'output_redacted': 'output',
+        'metadata_redacted': 'metadata',
+        'status_message_redacted': 'status_message',
+    }
+    for source, target in aliases.items():
+        if target not in normalized and source in normalized:
+            normalized[target] = normalized[source]
+    return normalized
+
+
+def _failure_observation_id(case: Mapping[str, Any]) -> Optional[str]:
+    tool_attempt = case.get('tool_attempt')
+    if isinstance(tool_attempt, Mapping):
+        result_id = _optional_str(tool_attempt.get('tool_result_observation_id'))
+        if result_id:
+            return result_id
+    rule_evidence = case.get('rule_evidence')
+    if isinstance(rule_evidence, Mapping):
+        return _optional_str(rule_evidence.get('matched_observation_id'))
+    return None
+
+
+def _serialize_result(value: Any) -> Dict[str, Any]:
+    payload = asdict(value)
+    return _serialize_enums(payload)
+
+
+def _serialize_enums(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {key: _serialize_enums(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_serialize_enums(item) for item in value]
+    return value
+
+
+def _nested_value(value: Mapping[str, Any], parent: str, child: str) -> Any:
+    nested = value.get(parent)
+    return nested.get(child) if isinstance(nested, Mapping) else None
+
+
+def _optional_str(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None

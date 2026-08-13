@@ -7,6 +7,10 @@ from .failure_gate import (
     FailureGateResult,
     evaluate_file_not_found_failure,
 )
+from .evaluation import (
+    evaluate_file_not_found_predictions,
+    predict_file_not_found_cases,
+)
 from .historical_converter import convert_historical_langfuse_observations
 from .models import (
     CauseKind,
@@ -50,6 +54,8 @@ __all__ = [
     'convert_historical_langfuse_observations',
     'convert_langfuse_observations',
     'evaluate_file_not_found_failure',
+    'evaluate_file_not_found_predictions',
+    'predict_file_not_found_cases',
     'tool_attribution_summaries',
     'tool_attribution_to_dict',
 ]
