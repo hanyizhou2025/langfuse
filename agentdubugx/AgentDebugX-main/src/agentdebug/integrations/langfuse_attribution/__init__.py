@@ -2,6 +2,11 @@
 
 from .attributor import LangfuseToolAttributor
 from .converter import convert_langfuse_observations
+from .failure_gate import (
+    FailureGateDecision,
+    FailureGateResult,
+    evaluate_file_not_found_failure,
+)
 from .historical_converter import convert_historical_langfuse_observations
 from .models import (
     CauseKind,
@@ -25,6 +30,8 @@ __all__ = [
     'ConversionEvidence',
     'ATTRIBUTION_METADATA_KEY',
     'FailureCategory',
+    'FailureGateDecision',
+    'FailureGateResult',
     'LangfuseConversionResult',
     'LangfuseToolAttributor',
     'ParameterSource',
@@ -34,6 +41,7 @@ __all__ = [
     'attach_tool_attributions',
     'convert_historical_langfuse_observations',
     'convert_langfuse_observations',
+    'evaluate_file_not_found_failure',
     'tool_attribution_summaries',
     'tool_attribution_to_dict',
 ]
