@@ -83,6 +83,24 @@ such as `observation_id`, `input_redacted`, and `output_redacted`. It returns
 `unknown` when source or semantic evidence is not unique instead of forcing
 attribution.
 
+## Direct production-table deployment
+
+AgentDebugX can also run directly from ClickHouse `traces`, `observations`,
+and keyword-filtered `tool_error` tables without importing any Langfuse
+application code:
+
+```bash
+agentdebug langfuse-fnf doctor --config /path/to/source.json
+agentdebug langfuse-fnf run /path/to/outputs \
+  --config /path/to/source.json \
+  --annotations /path/to/annotations.jsonl
+```
+
+Connection credentials come only from `AGENTDEBUG_CLICKHOUSE_*` environment
+variables. See [the production deployment guide](../../../../docs/PRODUCTION_LANGFUSE_FNF.md)
+for the table contract, configuration example, read-only/security behavior,
+snapshot workflow, and the redacted-view requirement for public-model calls.
+
 ## Optional LLM enhancement
 
 Ambiguous cases can be reviewed by any OpenAI-compatible public model API:

@@ -1,0 +1,21 @@
+{
+  "project_id": "replace-with-project-id",
+  "tables": {
+    "traces": "traces",
+    "observations": "observations",
+    "tool_errors": "tool_error"
+  },
+  "candidate_columns": {
+    "failure_observation_id": "observation_id",
+    "trace_id": "trace_id",
+    "project_id": "project_id",
+    "case_id": "case_id",
+    "rule_id": "rule_id",
+    "matched_field": "matched_field",
+    "matched_text": "matched_text",
+    "timestamp": "created_at"
+  },
+  "payload_contract": "raw",
+  "allow_unscoped_tool_errors": false,
+  "matched_text_is_redacted": false
+}
