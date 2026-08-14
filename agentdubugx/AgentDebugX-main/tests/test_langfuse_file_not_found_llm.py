@@ -398,3 +398,82 @@ def test_successful_write_is_lifecycle_evidence_not_a_conflicting_source() -> No
 
     assert result.decision == FileNotFoundDecision.ATTRIBUTED
     assert result.root_cause_observation_id == 'cleanup'
+
+
+def test_llm_cannot_turn_trace_entry_assistant_context_into_local_root() -> None:
+    path = r'D:\workspace\missing.py'
+    observations = [
+        {
+            **_observation(
+                'trace-input-assistant',
+                0,
+                observation_type='GENERATION',
+                name='assistant.context',
+                input_value={'filePath': path},
+            ),
+            'metadata_redacted': {
+                'synthetic_role': 'trace_input',
+                'message_role': 'assistant',
+            },
+        },
+        _observation(
+            'trigger-llm',
+            1,
+            observation_type='GENERATION',
+            name='planner',
+            output_value={
+                'tool_calls': [
+                    {
+                        'function': {
+                            'name': 'read',
+                            'arguments': {'filePath': path},
+                        }
+                    }
+                ]
+            },
+        ),
+        _observation(
+            'failed-read',
+            2,
+            observation_type='TOOL',
+            name='read',
+            input_value={'filePath': path},
+            output_value={'error': 'File not found: %s' % path},
+            parent_observation_id='trigger-llm',
+            level='ERROR',
+            status_message='File not found',
+        ),
+    ]
+    llm = FakeLLM(
+        [
+            {
+                'decision': 'attributed',
+                'semantics': 'unexpected_failure',
+                'is_agent_failure': True,
+                'failure_observation_id': 'failed-read',
+                'root_cause_observation_id': 'trace-input-assistant',
+                'root_cause_label': 'model_path_hallucination',
+                'root_cause_domain': 'model',
+                'evidence_observation_ids': [
+                    'trace-input-assistant',
+                    'trigger-llm',
+                    'failed-read',
+                ],
+                'confidence': 0.99,
+                'reason_codes': ['assistant_context_contains_path'],
+            }
+        ]
+    )
+
+    result = FileNotFoundLLMAttributor(llm).attribute(
+        observations,
+        failure_observation_id='failed-read',
+        trace_id='trace-long',
+    )
+
+    assert result.decision == FileNotFoundDecision.UNKNOWN
+    assert result.root_cause_observation_id is None
+    assert result.root_cause_scope == 'outside_current_trace'
+    assert result.local_trigger_observation_id == 'trigger-llm'
+    assert result.attribution_method == 'deterministic_fallback'
+    assert 'llm_cross_trace_root_unsupported' in result.reason_codes

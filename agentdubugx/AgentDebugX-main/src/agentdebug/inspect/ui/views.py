@@ -190,6 +190,18 @@ def _file_not_found_attribution_card(
     completion_tokens = summary.get('llm_completion_tokens')
     context_text = _count_pair(reviewed_count, total_count, 'observations')
     token_text = _count_pair(prompt_tokens, completion_tokens, 'tokens', separator=' + ')
+    root_scope = _humanize(summary.get('root_cause_scope')).capitalize()
+    earliest_id = str(
+        summary.get('earliest_local_evidence_observation_id') or ''
+    )
+    trigger_id = str(summary.get('local_trigger_observation_id') or '')
+    propagation_ids = summary.get('propagation_observation_ids')
+    propagation = propagation_ids if isinstance(propagation_ids, list) else []
+    reference_confidence = summary.get('reference_confidence')
+    try:
+        reference_confidence_text = f'{float(reference_confidence) * 100:.0f}%'
+    except (TypeError, ValueError):
+        reference_confidence_text = 'unknown'
 
     root_value = (
         root_label + (' · ' + root_domain if root_domain != 'unknown' else '')
@@ -204,6 +216,11 @@ def _file_not_found_attribution_card(
         for item in evidence
         if item
     ) or '<li>No evidence observation was recorded.</li>'
+    propagation_items = ''.join(
+        '<li>' + _observation_link(trace_id, str(item)) + '</li>'
+        for item in propagation
+        if item
+    ) or '<li>No current-trace reference chain was recorded.</li>'
 
     return (
         '<article class="attribution-card file-not-found-card ' + tone + '">'
@@ -219,16 +236,24 @@ def _file_not_found_attribution_card(
         + html_escape(attribution_method) + '</span><strong>Model</strong><span>'
         + html_escape(model) + '</span><strong>Model context</strong><span>'
         + html_escape(context_text) + '</span><strong>Token usage</strong><span>'
-        + html_escape(token_text) + '</span></div>'
+        + html_escape(token_text) + '</span><strong>Reference confidence</strong><span>'
+        + html_escape(reference_confidence_text) + '</span></div>'
         '<dl class="node-grid"><div><dt>Failure observation</dt><dd class="mono">'
         + (_observation_link(trace_id, failure_id) if failure_id else 'Not recorded')
         + '</dd></div><div><dt>Root cause observation</dt><dd class="mono">'
         + (_observation_link(trace_id, root_id) if root_id else html_escape(root_value))
         + '</dd></div><div><dt>Root cause type</dt><dd class="cause">'
-        + html_escape(root_value) + '</dd></div></dl>'
+        + html_escape(root_value) + '</dd></div><div><dt>Root cause scope</dt><dd>'
+        + html_escape(root_scope) + '</dd></div><div><dt>Earliest local evidence</dt>'
+        '<dd class="mono">'
+        + (_observation_link(trace_id, earliest_id) if earliest_id else 'Not recorded')
+        + '</dd></div><div><dt>Local trigger</dt><dd class="mono">'
+        + (_observation_link(trace_id, trigger_id) if trigger_id else 'Not recorded')
+        + '</dd></div></dl>'
         '<div class="evidence-columns"><div><h3>Decision reasons</h3><ul>'
         + reason_items + '</ul></div><div><h3>Evidence observations</h3><ul>'
-        + evidence_items + '</ul></div></div></article>'
+        + evidence_items + '</ul></div><div><h3>Reference chain</h3><ul>'
+        + propagation_items + '</ul></div></div></article>'
     )
 
 
@@ -280,7 +305,7 @@ main { width:min(960px,calc(100% - 36px)); margin:0 auto; padding:48px 0 72px; }
 .back { display:inline-flex; color:var(--cyan); text-decoration:none; font-weight:650; margin:0 14px 28px 0; } .eyebrow { color:var(--cyan); font-size:12px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
 h1 { margin:8px 0; font-size:32px; } .lead { margin:0 0 30px; color:var(--muted); } .attribution-card,.empty { background:rgba(16,27,36,.96); border:1px solid var(--line); border-radius:14px; padding:24px; box-shadow:0 16px 40px rgba(0,0,0,.2); } .attribution-card + .attribution-card { margin-top:18px; }
 .card-heading { display:flex; justify-content:space-between; gap:18px; align-items:start; } h2 { margin:4px 0 0; font-size:23px; } .confidence { color:#101820; background:var(--cyan); border-radius:999px; padding:5px 9px; font-size:12px; font-weight:800; white-space:nowrap; }
-dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:22px 0; } dl div { border:1px solid var(--line); border-radius:9px; padding:12px; min-width:0; } dt { color:var(--muted); font-size:12px; } dd { margin:6px 0 0; font-weight:700; overflow-wrap:anywhere; word-break:break-word; } .cause { color:var(--gold); } .mono { font-family:ui-monospace,SFMono-Regular,monospace; font-size:13px; } h3 { margin:22px 0 8px; font-size:14px; } ul { margin:0; padding-left:20px; color:var(--muted); line-height:1.55; overflow-wrap:anywhere; } .event-link { display:inline-flex; margin-top:22px; border:1px solid var(--cyan); border-radius:8px; color:var(--cyan); padding:8px 10px; font-size:13px; font-weight:700; text-decoration:none; } code,.observation-link { color:var(--cyan); } .observation-link { text-decoration:none; border-bottom:1px dotted currentColor; overflow-wrap:anywhere; word-break:break-word; } .file-not-found-card { border-top:3px solid var(--gold); } .file-not-found-card.attributed { border-top-color:var(--red); } .file-not-found-card.expected { border-top-color:var(--green); } .file-not-found-card.unknown,.file-not-found-card.invalid { border-top-color:var(--gold); } .case-id { color:var(--muted); margin:8px 0 0; overflow-wrap:anywhere; } .decision-badge { border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:12px; font-weight:800; white-space:nowrap; text-transform:uppercase; letter-spacing:.04em; } .decision-badge.attributed { color:var(--red); border-color:var(--red); } .decision-badge.expected { color:var(--green); border-color:var(--green); } .decision-badge.unknown,.decision-badge.invalid { color:var(--gold); border-color:var(--gold); } .decision-summary { display:grid; grid-template-columns:auto 1fr; gap:7px 14px; margin:22px 0; padding:14px 16px; border-radius:10px; background:#0b151d; } .decision-summary strong { color:var(--muted); font-size:12px; } .decision-summary span { font-weight:700; overflow-wrap:anywhere; } .evidence-columns { display:grid; grid-template-columns:1fr 1fr; gap:20px; } @media (max-width:680px) { main { width:min(100% - 24px,960px); padding-top:28px; } dl,.evidence-columns { grid-template-columns:1fr; } .card-heading { flex-direction:column; } .decision-summary { grid-template-columns:1fr; gap:3px; } .decision-summary span + strong { margin-top:8px; } } @media (max-width:420px) { main { width:100%; padding:22px 12px 44px; } .attribution-card,.empty { padding:18px; } h1 { font-size:27px; } h2 { font-size:20px; } .decision-summary { padding:12px; } dl div { padding:10px; } }
+dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:22px 0; } dl div { border:1px solid var(--line); border-radius:9px; padding:12px; min-width:0; } dt { color:var(--muted); font-size:12px; } dd { margin:6px 0 0; font-weight:700; overflow-wrap:anywhere; word-break:break-word; } .cause { color:var(--gold); } .mono { font-family:ui-monospace,SFMono-Regular,monospace; font-size:13px; } h3 { margin:22px 0 8px; font-size:14px; } ul { margin:0; padding-left:20px; color:var(--muted); line-height:1.55; overflow-wrap:anywhere; } .event-link { display:inline-flex; margin-top:22px; border:1px solid var(--cyan); border-radius:8px; color:var(--cyan); padding:8px 10px; font-size:13px; font-weight:700; text-decoration:none; } code,.observation-link { color:var(--cyan); } .observation-link { text-decoration:none; border-bottom:1px dotted currentColor; overflow-wrap:anywhere; word-break:break-word; } .file-not-found-card { border-top:3px solid var(--gold); } .file-not-found-card.attributed { border-top-color:var(--red); } .file-not-found-card.expected { border-top-color:var(--green); } .file-not-found-card.unknown,.file-not-found-card.invalid { border-top-color:var(--gold); } .case-id { color:var(--muted); margin:8px 0 0; overflow-wrap:anywhere; } .decision-badge { border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:12px; font-weight:800; white-space:nowrap; text-transform:uppercase; letter-spacing:.04em; } .decision-badge.attributed { color:var(--red); border-color:var(--red); } .decision-badge.expected { color:var(--green); border-color:var(--green); } .decision-badge.unknown,.decision-badge.invalid { color:var(--gold); border-color:var(--gold); } .decision-summary { display:grid; grid-template-columns:auto 1fr; gap:7px 14px; margin:22px 0; padding:14px 16px; border-radius:10px; background:#0b151d; } .decision-summary strong { color:var(--muted); font-size:12px; } .decision-summary span { font-weight:700; overflow-wrap:anywhere; } .evidence-columns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; } @media (max-width:780px) { main { width:min(100% - 24px,960px); padding-top:28px; } dl,.evidence-columns { grid-template-columns:1fr; } .card-heading { flex-direction:column; } .decision-summary { grid-template-columns:1fr; gap:3px; } .decision-summary span + strong { margin-top:8px; } } @media (max-width:420px) { main { width:100%; padding:22px 12px 44px; } .attribution-card,.empty { padding:18px; } h1 { font-size:27px; } h2 { font-size:20px; } .decision-summary { padding:12px; } dl div { padding:10px; } }
 </style></head><body><main><a class="back" href="__TRACE_HREF__">← Back to trace</a><span class="eyebrow">Evidence-backed diagnosis</span><h1>Tool Attribution</h1><p class="lead">Trace: <span class="mono">__TRACE_ID__</span></p>__ATTRIBUTION_CARDS__</main></body></html>"""
 
 

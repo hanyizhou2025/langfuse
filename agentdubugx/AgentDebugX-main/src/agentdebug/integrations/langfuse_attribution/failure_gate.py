@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from .path_evidence import extract_path, paths_equal
+
 
 class FailureGateDecision(str, Enum):
     """Whether an observed technical error should enter attribution."""
@@ -36,7 +38,6 @@ _FILE_NOT_FOUND_TOKENS = (
 )
 _PROBE_NAME_TOKENS = ('exists', 'existence', 'stat', 'check', 'probe')
 _CREATE_NAME_TOKENS = ('create', 'write', 'touch', 'save')
-_PATH_ARGUMENT_KEYS = ('path', 'file', 'filename', 'file_path')
 
 
 def evaluate_file_not_found_failure(
@@ -90,7 +91,7 @@ def evaluate_file_not_found_failure(
             ['probe_tool_name'],
         )
 
-    failed_path = _extract_path(failure.get('input'))
+    failed_path = extract_path(failure.get('input'))
     recovery = _find_successful_create(
         ordered[failure_index + 1 :],
         failed_path,
@@ -144,7 +145,7 @@ def _find_successful_create(
         name = str(observation.get('name') or '').lower()
         if not any(token in name for token in _CREATE_NAME_TOKENS):
             continue
-        if _extract_path(observation.get('input')) != failed_path:
+        if not paths_equal(extract_path(observation.get('input')), failed_path):
             continue
         if _is_success(observation):
             return observation
@@ -182,24 +183,6 @@ def _is_file_not_found_result(observation: Mapping[str, Any]) -> bool:
         parts.append(_optional_str(output))
     text = ' '.join(item for item in parts if item).lower()
     return any(token in text for token in _FILE_NOT_FOUND_TOKENS)
-
-
-def _extract_path(value: Any) -> Optional[str]:
-    if isinstance(value, Mapping):
-        for key in _PATH_ARGUMENT_KEYS:
-            path = _optional_str(value.get(key))
-            if path:
-                return path
-        for child in value.values():
-            path = _extract_path(child)
-            if path:
-                return path
-    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        for child in value:
-            path = _extract_path(child)
-            if path:
-                return path
-    return None
 
 
 def _result(

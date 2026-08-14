@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .converter import convert_langfuse_observations
 from .models import LangfuseConversionResult, ParameterSource, ValueSource
+from .path_evidence import contains_path, find_path_argument
 
 
 _FILE_NOT_FOUND_TOKENS = (
@@ -21,7 +22,6 @@ _FILE_NOT_FOUND_TOKENS = (
     'no such file',
     'no such directory',
 )
-_PATH_ARGUMENT_KEYS = ('path', 'file', 'filename', 'file_path')
 _ERROR_KEYS = ('error_code', 'error', 'code')
 
 
@@ -108,29 +108,11 @@ def _is_file_not_found_result(observation: Mapping[str, Any]) -> bool:
 
 
 def _extract_path_argument(value: Any) -> Dict[str, Any]:
-    found = _find_path_argument(value)
+    found = find_path_argument(value)
     if found is None:
         return {}
     key, path = found
     return {key: path}
-
-
-def _find_path_argument(value: Any) -> Optional[Tuple[str, str]]:
-    if isinstance(value, Mapping):
-        for key in _PATH_ARGUMENT_KEYS:
-            path = _optional_str(value.get(key))
-            if path:
-                return key, path
-        for child in value.values():
-            found = _find_path_argument(child)
-            if found is not None:
-                return found
-    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        for child in value:
-            found = _find_path_argument(child)
-            if found is not None:
-                return found
-    return None
 
 
 def _infer_path_source(
@@ -173,19 +155,9 @@ def _observation_contains_path(
     observation: Mapping[str, Any],
     path: str,
 ) -> bool:
-    return _contains_text(observation.get('input'), path) or _contains_text(
+    return contains_path(observation.get('input'), path) or contains_path(
         observation.get('output'), path
     )
-
-
-def _contains_text(value: Any, needle: str) -> bool:
-    if isinstance(value, str):
-        return needle in value
-    if isinstance(value, Mapping):
-        return any(_contains_text(item, needle) for item in value.values())
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return any(_contains_text(item, needle) for item in value)
-    return False
 
 
 def _source_role(observation: Mapping[str, Any]) -> Optional[str]:

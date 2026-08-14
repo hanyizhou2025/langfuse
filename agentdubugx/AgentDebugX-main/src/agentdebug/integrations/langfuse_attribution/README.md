@@ -70,15 +70,22 @@ PYTHONPATH=src python -m agentdebug.integrations.langfuse_attribution.cli \
 ```
 
 The dataset directory must contain `traces.jsonl`, `cases.jsonl`, and
-`observations.jsonl`. Trace-level input is represented as a stable synthetic
-`<trace-id>:input` user-source event during offline conversion, so a path that
-originated in the trace input is not misclassified as model-generated.
+`observations.jsonl`. Unstructured trace-level input remains a stable synthetic
+`<trace-id>:input` user-source event for backward compatibility. Inputs that
+declare `user`, `assistant`, or `system` roles are split into role-aware events
+such as `<trace-id>:input:assistant:0`; historical assistant context is not
+misclassified as a new user or model decision in the current trace.
 The command always writes `predictions.jsonl` and an Inspect-compatible
 `trajectories.jsonl`. When `annotations.jsonl` is present, it also writes
 `report.json`. Upload `trajectories.jsonl` through **Upload Trace**, open a
 trace, and select **Tool Attribution** to review the semantic decision, failure
 observation, root-cause observation, evidence observations, reason codes, and
-confidence. The historical converter accepts the documented redacted aliases
+confidence. When the bad path already exists in assistant/system context at
+trace entry, the deterministic result abstains from an in-trace root cause and
+returns `root_cause_scope=outside_current_trace` plus the earliest local
+evidence, local tool-call trigger, and current-trace propagation chain. These
+are reference nodes, not a claim that AgentDebugX followed the prior trace.
+The historical converter accepts the documented redacted aliases
 such as `observation_id`, `input_redacted`, and `output_redacted`. It returns
 `unknown` when source or semantic evidence is not unique instead of forcing
 attribution.

@@ -234,5 +234,10 @@ agentdebug langfuse-fnf run /data/fnf-results-llm \
 - `annotations.jsonl` 只进入评测器，不进入确定性归因或 LLM prompt；
 - 缺失 Trace、错误 Observation 不属于 Trace、候选重复等情况不会崩溃，
   会计入运行摘要的 `skipped_candidates`；
+- Trace 入口若已包含带角色的历史 `assistant/system` 上下文，系统不会把它
+  误标为当前 Trace 内的用户或模型根因。输出将保持 `decision=unknown`、
+  `root_cause_observation_id=null`，同时以 `root_cause_scope`、
+  `earliest_local_evidence_observation_id`、`local_trigger_observation_id` 和
+  `propagation_observation_ids` 提供当前 Trace 内可核查的参考链；
+- 上述参考链不做跨 Trace 查询，也不声称找到了上一条 Trace 的真正责任节点；
 - 当前归因目标仍限定为 File Not Found，其他 Tool 错误后续扩展。
-

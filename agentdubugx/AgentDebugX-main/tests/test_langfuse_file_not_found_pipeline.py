@@ -135,7 +135,8 @@ def test_pipeline_returns_unknown_when_path_source_is_missing() -> None:
 
     assert result.decision == FileNotFoundDecision.UNKNOWN
     assert result.root_cause_observation_id is None
-    assert result.reason_codes == ['insufficient_semantic_or_source_evidence']
+    assert 'insufficient_semantic_or_source_evidence' in result.reason_codes
+    assert 'file_not_found_confirmed' in result.reason_codes
 
 
 def test_pipeline_returns_invalid_case_for_unknown_failure_id() -> None:
@@ -145,3 +146,88 @@ def test_pipeline_returns_invalid_case_for_unknown_failure_id() -> None:
     )
 
     assert result.decision == FileNotFoundDecision.INVALID_CASE
+
+
+def test_pipeline_reports_current_trace_reference_when_root_precedes_trace() -> None:
+    path = r'D:\workspace\missing.py'
+    observations: List[Dict[str, object]] = [
+        {
+            **_observation(
+                'initial-llm',
+                0,
+                observation_type='GENERATION',
+                name='initial-context',
+                input_value={
+                    'assistant': {
+                        'text': 'Worker 5 report is missing.',
+                        'tool_calls': [
+                            {
+                                'function': {
+                                    'name': 'read',
+                                    'arguments': {'filePath': path},
+                                }
+                            }
+                        ],
+                    }
+                },
+            ),
+            'metadata': {'message_role': 'assistant'},
+        },
+        _observation(
+            'trigger-llm',
+            1,
+            observation_type='GENERATION',
+            name='planner',
+            output_value={
+                'tool_calls': [
+                    {
+                        'function': {
+                            'name': 'read',
+                            'arguments': {'filePath': path},
+                        }
+                    }
+                ]
+            },
+        ),
+        {
+            **_failed_read(path, name='read'),
+            'input': {'filePath': path},
+            'parent_observation_id': 'trigger-llm',
+        },
+        _observation(
+            'downstream-search',
+            3,
+            observation_type='TOOL',
+            name='glob',
+            input_value={'pattern': '**/missing.py'},
+            output_value={'matches': []},
+        ),
+    ]
+
+    result = attribute_historical_file_not_found(
+        observations,
+        failure_observation_id='failed-read',
+        case_id='case-inherited',
+    )
+
+    assert result.decision == FileNotFoundDecision.UNKNOWN
+    assert result.is_agent_failure is None
+    assert result.failure_observation_id == 'failed-read'
+    assert result.root_cause_observation_id is None
+    assert result.root_cause_label is None
+    assert result.root_cause_scope == 'outside_current_trace'
+    assert result.earliest_local_evidence_observation_id == 'initial-llm'
+    assert result.local_trigger_observation_id == 'trigger-llm'
+    assert result.propagation_observation_ids == [
+        'initial-llm',
+        'trigger-llm',
+        'failed-read',
+    ]
+    assert result.reference_confidence == 0.95
+    assert result.evidence_observation_ids == [
+        'initial-llm',
+        'trigger-llm',
+        'failed-read',
+    ]
+    assert 'root_precedes_trace_boundary' in result.reason_codes
+    assert 'downstream_outcome_unclear' in result.reason_codes

@@ -15,6 +15,7 @@ from .evaluation import (
     predict_file_not_found_cases,
 )
 from .llm_attributor import _select_context
+from .trace_input import build_trace_input_observations
 
 
 _BATCH_INSTRUCTIONS = """Analyze each redacted Langfuse File Not Found case below.
@@ -230,25 +231,9 @@ def _group_observations(
         trace_id = str(observation.get('trace_id') or '')
         grouped.setdefault(trace_id, []).append(dict(observation))
     for trace in traces:
-        trace_id = str(trace.get('trace_id') or trace.get('id') or '')
-        input_value = trace.get('input_redacted')
-        if not trace_id or input_value is None:
-            continue
-        grouped.setdefault(trace_id, []).append(
-            {
-                'observation_id': '%s:input' % trace_id,
-                'trace_id': trace_id,
-                'parent_observation_id': None,
-                'type': 'SPAN',
-                'name': 'user.request',
-                'start_time': trace.get('timestamp'),
-                'input_redacted': input_value,
-                'output_redacted': None,
-                'metadata_redacted': {'synthetic_role': 'trace_input'},
-                'level': 'DEFAULT',
-                'status_message_redacted': None,
-            }
-        )
+        for trace_input in build_trace_input_observations(trace):
+            trace_id = str(trace_input.get('trace_id') or '')
+            grouped.setdefault(trace_id, []).append(trace_input)
     return grouped
 
 

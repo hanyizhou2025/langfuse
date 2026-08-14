@@ -16,6 +16,7 @@ from .pipeline import (
     FileNotFoundDecision,
     attribute_historical_file_not_found,
 )
+from .path_evidence import extract_path
 
 
 LOG = logging.getLogger('agentdebug.langfuse_file_not_found_llm')
@@ -54,7 +55,6 @@ _SEMANTICS = {
     'unexpected_failure',
     'unknown',
 }
-_PATH_KEYS = ('path', 'file', 'filename', 'file_path')
 _ERROR_TOKENS = ('enoent', 'file not found', 'no such file', 'no such directory')
 _CONTEXT_NAME_TOKENS = (
     'user',
@@ -211,6 +211,17 @@ class FileNotFoundLLMAttributor:
                 reason_code='llm_conflicting_path_sources',
                 raw=completion.raw,
             )
+        if (
+            validated['decision'] == 'attributed'
+            and baseline.root_cause_scope == 'outside_current_trace'
+        ):
+            return _fallback(
+                baseline,
+                model=self.llm.model,
+                reviewed_count=reviewed_count,
+                reason_code='llm_cross_trace_root_unsupported',
+                raw=completion.raw,
+            )
 
         usage = _usage(completion.raw)
         return FileNotFoundAttributionResult(
@@ -232,6 +243,15 @@ class FileNotFoundLLMAttributor:
             reviewed_observation_count=reviewed_count,
             llm_prompt_tokens=usage[0],
             llm_completion_tokens=usage[1],
+            root_cause_scope=baseline.root_cause_scope,
+            earliest_local_evidence_observation_id=(
+                baseline.earliest_local_evidence_observation_id
+            ),
+            local_trigger_observation_id=baseline.local_trigger_observation_id,
+            propagation_observation_ids=list(
+                baseline.propagation_observation_ids
+            ),
+            reference_confidence=baseline.reference_confidence,
         )
 
 
@@ -274,7 +294,7 @@ def _select_context(
     if failure_index is None:
         return []
     failure = ordered[failure_index]
-    failed_path = _extract_path(failure.get('input_redacted'))
+    failed_path = extract_path(failure.get('input_redacted'))
 
     priorities: Dict[str, int] = {failure_observation_id: 0}
 
@@ -394,7 +414,7 @@ def _validate_payload(
     if semantics not in _SEMANTICS:
         return None, 'llm_invalid_semantics'
     confidence = payload.get('confidence')
-    if isinstance(confidence, bool):
+    if confidence is None or isinstance(confidence, bool):
         return None, 'llm_invalid_confidence'
     try:
         confidence_value = float(confidence)
@@ -479,24 +499,6 @@ def _observation_id(observation: Mapping[str, Any]) -> str:
     return str(observation.get('observation_id') or observation.get('id') or '')
 
 
-def _extract_path(value: Any) -> Optional[str]:
-    if isinstance(value, Mapping):
-        for key in _PATH_KEYS:
-            path = _optional_str(value.get(key))
-            if path:
-                return path
-        for child in value.values():
-            path = _extract_path(child)
-            if path:
-                return path
-    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        for child in value:
-            path = _extract_path(child)
-            if path:
-                return path
-    return None
-
-
 def _redacted_search_text(observation: Mapping[str, Any]) -> str:
     values = (
         observation.get('input_redacted'),
@@ -523,7 +525,7 @@ def _has_conflicting_path_sources(
     )
     if failure is None:
         return False
-    failed_path = _extract_path(failure.get('input_redacted'))
+    failed_path = extract_path(failure.get('input_redacted'))
     if not failed_path:
         return False
     domains = {

@@ -63,6 +63,15 @@ def test_render_tool_attribution_page_displays_file_not_found_decision(
             'reviewed_observation_count': 48,
             'llm_prompt_tokens': 2400,
             'llm_completion_tokens': 180,
+            'root_cause_scope': 'outside_current_trace',
+            'earliest_local_evidence_observation_id': 'evt_context',
+            'local_trigger_observation_id': 'evt_plan',
+            'propagation_observation_ids': [
+                'evt_context',
+                'evt_plan',
+                'evt_tool',
+            ],
+            'reference_confidence': 0.91,
         }
     ]
 
@@ -78,6 +87,13 @@ def test_render_tool_attribution_page_displays_file_not_found_decision(
     assert 'public-model-mini' in page
     assert '48 / 1200 observations' in page
     assert '2400 + 180 tokens' in page
+    assert 'Root cause scope' in page
+    assert 'Outside current trace' in page
+    assert 'Earliest local evidence' in page
+    assert '/trace/trace_failed/event/evt_context' in page
+    assert 'Local trigger' in page
+    assert 'Reference chain' in page
+    assert '91%' in page
     if label:
         assert label.replace('_', ' ') in page
         assert 'Root cause observation' in page

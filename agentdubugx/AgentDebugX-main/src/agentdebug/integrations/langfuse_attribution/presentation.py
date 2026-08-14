@@ -34,6 +34,11 @@ _FILE_NOT_FOUND_DISPLAY_FIELDS = (
     'reviewed_observation_count',
     'llm_prompt_tokens',
     'llm_completion_tokens',
+    'root_cause_scope',
+    'earliest_local_evidence_observation_id',
+    'local_trigger_observation_id',
+    'propagation_observation_ids',
+    'reference_confidence',
 )
 
 
@@ -43,7 +48,9 @@ def attach_tool_attributions(
 ) -> List[ToolFailureAttribution]:
     """Attach a safe, UI-ready summary without copying raw tool arguments."""
 
-    attributions = LangfuseToolAttributor().attribute(evidence)
+    attributions: List[ToolFailureAttribution] = (
+        LangfuseToolAttributor().attribute(evidence)
+    )
     trajectory.metadata[ATTRIBUTION_METADATA_KEY] = [
         tool_attribution_to_dict(attribution) for attribution in attributions
     ]
@@ -97,7 +104,10 @@ def file_not_found_attribution_to_dict(
         else dict(result)
     )
     payload = {key: raw_payload.get(key) for key in _FILE_NOT_FOUND_DISPLAY_FIELDS}
-    return _serialize_enums(payload)
+    serialized = _serialize_enums(payload)
+    if not isinstance(serialized, dict):
+        raise TypeError('Serialized File Not Found attribution must be an object.')
+    return serialized
 
 
 def file_not_found_attribution_summaries(value: Any) -> List[Dict[str, Any]]:

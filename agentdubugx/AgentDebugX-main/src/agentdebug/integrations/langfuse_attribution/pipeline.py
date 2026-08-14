@@ -15,6 +15,7 @@ from .models import (
     ToolFailureAttribution,
     ToolFailureEvidence,
 )
+from .trace_reference import CurrentTraceReference, build_current_trace_reference
 
 
 class FileNotFoundDecision(str, Enum):
@@ -48,6 +49,11 @@ class FileNotFoundAttributionResult:
     reviewed_observation_count: int = 0
     llm_prompt_tokens: Optional[int] = None
     llm_completion_tokens: Optional[int] = None
+    root_cause_scope: str = 'unknown'
+    earliest_local_evidence_observation_id: Optional[str] = None
+    local_trigger_observation_id: Optional[str] = None
+    propagation_observation_ids: List[str] = field(default_factory=list)
+    reference_confidence: float = 0.0
 
 
 _CAUSE_LABELS = {
@@ -79,6 +85,10 @@ def attribute_historical_file_not_found(
     """
 
     observation_list = list(observations)
+    reference = build_current_trace_reference(
+        observation_list,
+        failure_observation_id=failure_observation_id,
+    )
     converted = convert_historical_langfuse_observations(
         observation_list,
         trace_id=trace_id,
@@ -108,6 +118,7 @@ def attribute_historical_file_not_found(
             gate.evidence_observation_ids,
             0.0,
             gate.reason_codes,
+            reference=reference,
         )
     if gate.decision == FailureGateDecision.NOT_AGENT_FAILURE:
         return _result(
@@ -122,7 +133,28 @@ def attribute_historical_file_not_found(
             None,
             gate.evidence_observation_ids,
             1.0,
-            gate.reason_codes,
+            _unique_strings(gate.reason_codes + reference.reason_codes),
+            reference=reference,
+        )
+    if reference.root_cause_scope == 'outside_current_trace':
+        return _result(
+            case_id,
+            converted.trajectory.trace_id,
+            FileNotFoundDecision.UNKNOWN,
+            'unknown',
+            None,
+            failure_observation_id,
+            None,
+            None,
+            None,
+            reference.propagation_observation_ids,
+            0.0,
+            _unique_strings(
+                gate.reason_codes
+                + reference.reason_codes
+                + ['downstream_outcome_unclear']
+            ),
+            reference=reference,
         )
     if gate.decision == FailureGateDecision.UNKNOWN or failure is None:
         return _result(
@@ -135,9 +167,13 @@ def attribute_historical_file_not_found(
             None,
             None,
             None,
-            gate.evidence_observation_ids,
+            _unique_ids(
+                reference.propagation_observation_ids
+                + gate.evidence_observation_ids
+            ),
             0.0,
-            gate.reason_codes,
+            _unique_strings(gate.reason_codes + reference.reason_codes),
+            reference=reference,
         )
 
     attribution = LangfuseToolAttributor().attribute(
@@ -162,6 +198,7 @@ def attribute_historical_file_not_found(
             gate.evidence_observation_ids,
             attribution.confidence,
             gate.reason_codes + ['unsupported_or_unknown_cause'],
+            reference=reference,
         )
 
     label, domain = cause
@@ -180,7 +217,8 @@ def attribute_historical_file_not_found(
         domain,
         evidence_ids,
         attribution.confidence,
-        gate.reason_codes,
+        _unique_strings(gate.reason_codes + reference.reason_codes),
+        reference=reference,
     )
 
 
@@ -204,7 +242,7 @@ def _source_observation_id(
     if failure is None:
         return None
     sources = {
-        source.observation_id
+        str(source.observation_id)
         for source in failure.argument_sources.values()
         if source.observation_id
     }
@@ -227,6 +265,14 @@ def _unique_ids(values: Iterable[Optional[str]]) -> List[str]:
     return result
 
 
+def _unique_strings(values: Iterable[str]) -> List[str]:
+    result: List[str] = []
+    for value in values:
+        if value and value not in result:
+            result.append(value)
+    return result
+
+
 def _result(
     case_id: Optional[str],
     trace_id: str,
@@ -240,7 +286,10 @@ def _result(
     evidence_observation_ids: List[str],
     confidence: float,
     reason_codes: List[str],
+    *,
+    reference: Optional[CurrentTraceReference] = None,
 ) -> FileNotFoundAttributionResult:
+    trace_reference = reference or CurrentTraceReference()
     return FileNotFoundAttributionResult(
         case_id=case_id,
         trace_id=trace_id,
@@ -254,4 +303,15 @@ def _result(
         evidence_observation_ids=evidence_observation_ids,
         confidence=confidence,
         reason_codes=reason_codes,
+        root_cause_scope=trace_reference.root_cause_scope,
+        earliest_local_evidence_observation_id=(
+            trace_reference.earliest_local_evidence_observation_id
+        ),
+        local_trigger_observation_id=(
+            trace_reference.local_trigger_observation_id
+        ),
+        propagation_observation_ids=list(
+            trace_reference.propagation_observation_ids
+        ),
+        reference_confidence=trace_reference.confidence,
     )

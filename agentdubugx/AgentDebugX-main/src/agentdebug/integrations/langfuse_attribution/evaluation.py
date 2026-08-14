@@ -14,6 +14,7 @@ from .historical_converter import convert_historical_langfuse_observations
 from .llm_attributor import FileNotFoundLLMAttributor
 from .pipeline import attribute_historical_file_not_found
 from .presentation import attach_file_not_found_attributions
+from .trace_input import build_trace_input_observations
 
 
 def predict_file_not_found_cases(
@@ -34,11 +35,9 @@ def predict_file_not_found_cases(
         observations_by_trace.setdefault(trace_id, []).append(normalized)
 
     for trace in traces:
-        trace_input = _trace_input_observation(trace)
-        if trace_input is None:
-            continue
-        trace_id = str(trace_input.get('trace_id') or '')
-        observations_by_trace.setdefault(trace_id, []).append(trace_input)
+        for trace_input in build_trace_input_observations(trace):
+            trace_id = str(trace_input.get('trace_id') or '')
+            observations_by_trace.setdefault(trace_id, []).append(trace_input)
 
     llm_attributor = (
         FileNotFoundLLMAttributor(
@@ -130,11 +129,9 @@ def _group_observations(
         observations_by_trace.setdefault(trace_id, []).append(normalized)
 
     for trace in traces:
-        trace_input = _trace_input_observation(trace)
-        if trace_input is None:
-            continue
-        trace_id = str(trace_input.get('trace_id') or '')
-        observations_by_trace.setdefault(trace_id, []).append(trace_input)
+        for trace_input in build_trace_input_observations(trace):
+            trace_id = str(trace_input.get('trace_id') or '')
+            observations_by_trace.setdefault(trace_id, []).append(trace_input)
     return observations_by_trace
 
 
@@ -250,31 +247,6 @@ def _normalize_observation(observation: Mapping[str, Any]) -> Dict[str, Any]:
         if target not in normalized and source in normalized:
             normalized[target] = normalized[source]
     return normalized
-
-
-def _trace_input_observation(trace: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
-    trace_id = _optional_str(trace.get('trace_id')) or _optional_str(trace.get('id'))
-    input_value = trace.get('input_redacted', trace.get('input'))
-    if not trace_id or input_value is None:
-        return None
-    return {
-        'id': '%s:input' % trace_id,
-        'observation_id': '%s:input' % trace_id,
-        'trace_id': trace_id,
-        'parent_observation_id': None,
-        'type': 'SPAN',
-        'name': 'user.request',
-        'start_time': trace.get('timestamp'),
-        'input': input_value,
-        'input_redacted': input_value,
-        'output': None,
-        'output_redacted': None,
-        'metadata': {'synthetic_role': 'trace_input'},
-        'metadata_redacted': {'synthetic_role': 'trace_input'},
-        'level': 'DEFAULT',
-        'status_message': None,
-        'status_message_redacted': None,
-    }
 
 
 def _failure_observation_id(case: Mapping[str, Any]) -> Optional[str]:

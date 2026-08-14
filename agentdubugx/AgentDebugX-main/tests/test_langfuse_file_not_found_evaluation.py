@@ -135,6 +135,84 @@ def test_predict_cases_uses_trace_input_as_user_path_source() -> None:
     assert predictions[0]['root_cause_observation_id'] == 'trace-user:input'
 
 
+def test_predict_cases_preserves_assistant_trace_input_as_boundary_context() -> None:
+    path = r'D:\workspace\missing.py'
+    case = {
+        'case_id': 'case-assistant-context',
+        'trace_id': 'trace-assistant-context',
+        'tool_attempt': {'tool_result_observation_id': 'failed-read'},
+    }
+    traces = [
+        {
+            'trace_id': 'trace-assistant-context',
+            'timestamp': '2026-01-01T00:00:00Z',
+            'input_redacted': {
+                'assistant': {
+                    'text': 'Worker 5 report is missing.',
+                    'tool_calls': [
+                        {
+                            'function': {
+                                'name': 'read',
+                                'arguments': {'filePath': path},
+                            }
+                        }
+                    ],
+                }
+            },
+        }
+    ]
+    observations = [
+        {
+            **_observation(
+                'trigger-llm',
+                1,
+                observation_type='GENERATION',
+                name='planner',
+                output_value={
+                    'tool_calls': [
+                        {
+                            'function': {
+                                'name': 'read',
+                                'arguments': {'filePath': path},
+                            }
+                        }
+                    ]
+                },
+            ),
+            'trace_id': 'trace-assistant-context',
+        },
+        {
+            **_observation(
+                'failed-read',
+                2,
+                observation_type='TOOL',
+                name='read',
+                input_value={'filePath': path},
+                output_value={'error': 'File not found: %s' % path},
+                level='ERROR',
+                status_message='File not found',
+            ),
+            'trace_id': 'trace-assistant-context',
+            'parent_observation_id': 'trigger-llm',
+        },
+    ]
+
+    predictions = predict_file_not_found_cases(
+        [case],
+        observations,
+        traces=traces,
+    )
+
+    prediction = predictions[0]
+    assert prediction['decision'] == 'unknown'
+    assert prediction['root_cause_observation_id'] is None
+    assert prediction['root_cause_scope'] == 'outside_current_trace'
+    assert prediction['earliest_local_evidence_observation_id'] == (
+        'trace-assistant-context:input:assistant:0'
+    )
+    assert prediction['local_trigger_observation_id'] == 'trigger-llm'
+
+
 def test_evaluation_reports_layered_counts() -> None:
     predictions = [
         {

@@ -179,3 +179,42 @@ def test_historical_converter_marks_unseen_path_source_unknown() -> None:
     source = converted.evidence.tool_failures[0].argument_sources['path']
     assert source.kind == ValueSource.UNKNOWN
     assert source.observation_id is None
+
+
+def test_historical_converter_accepts_camel_case_path_in_json_arguments() -> None:
+    path = r'D:\workspace\missing.py'
+    observations: List[Dict[str, object]] = [
+        _observation(
+            'generation',
+            1,
+            observation_type='GENERATION',
+            name='planner',
+            output_value={
+                'tool_calls': [
+                    {
+                        'function': {
+                            'name': 'read',
+                            'arguments': '{"filePath":"D:\\\\workspace\\\\missing.py"}',
+                        }
+                    }
+                ]
+            },
+        ),
+        _observation(
+            'tool-result',
+            2,
+            observation_type='TOOL',
+            name='read',
+            input_value={'filePath': path},
+            output_value={'error': 'File not found: %s' % path},
+            level='ERROR',
+            status_message='File not found',
+        ),
+    ]
+
+    converted = convert_historical_langfuse_observations(observations)
+
+    failure = converted.evidence.tool_failures[0]
+    assert failure.arguments == {'filePath': path}
+    assert failure.argument_sources['filePath'].kind == ValueSource.MODEL
+    assert failure.argument_sources['filePath'].observation_id == 'generation'
