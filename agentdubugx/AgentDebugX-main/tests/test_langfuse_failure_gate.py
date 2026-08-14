@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
+import pytest
+
 from agentdebug.integrations.langfuse_attribution import (
     FailureGateDecision,
     evaluate_file_not_found_failure,
@@ -165,3 +167,33 @@ def test_failure_gate_rejects_non_file_not_found_observation() -> None:
     )
 
     assert result.decision == FailureGateDecision.INVALID_CASE
+
+
+@pytest.mark.parametrize(
+    'output_value',
+    [
+        {'error': 'ENOENT'},
+        'File not found: /workspace/missing.md',
+    ],
+)
+def test_failure_gate_accepts_rule_candidate_without_error_level(
+    output_value: object,
+) -> None:
+    observations = [
+        _observation(
+            'failed-read',
+            0,
+            observation_type='TOOL',
+            name='read_file',
+            input_value={'path': '/workspace/missing.md'},
+            output_value=output_value,
+            level='DEFAULT',
+        )
+    ]
+
+    result = evaluate_file_not_found_failure(
+        observations,
+        failure_observation_id='failed-read',
+    )
+
+    assert result.decision == FailureGateDecision.UNKNOWN

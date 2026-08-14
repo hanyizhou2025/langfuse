@@ -95,16 +95,14 @@ def _is_file_not_found_result(observation: Mapping[str, Any]) -> bool:
     if str(observation.get('type') or '').upper() != 'TOOL':
         return False
 
-    level_is_error = str(observation.get('level') or '').upper() == 'ERROR'
     status_message = _optional_str(observation.get('status_message'))
-    output = _mapping(observation.get('output'))
-    structured_error = any(key in output for key in _ERROR_KEYS)
-    if not level_is_error and not status_message and not structured_error:
-        return False
-
+    raw_output = observation.get('output')
+    output = _mapping(raw_output)
     candidates = [status_message]
     candidates.extend(_optional_str(output.get(key)) for key in _ERROR_KEYS)
     candidates.append(_optional_str(output.get('message')))
+    if not output:
+        candidates.append(_optional_str(raw_output))
     error_text = ' '.join(item for item in candidates if item).lower()
     return any(token in error_text for token in _FILE_NOT_FOUND_TOKENS)
 

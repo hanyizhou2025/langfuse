@@ -106,9 +106,7 @@ def evaluate_file_not_found_failure(
         )
 
     if path_source_observation_id:
-        observation_ids = {
-            str(observation.get('id') or '') for observation in ordered
-        }
+        observation_ids = {str(observation.get('id') or '') for observation in ordered}
         if path_source_observation_id not in observation_ids:
             return _result(
                 FailureGateDecision.UNKNOWN,
@@ -172,7 +170,6 @@ def _is_success(observation: Mapping[str, Any]) -> bool:
 def _is_file_not_found_result(observation: Mapping[str, Any]) -> bool:
     if str(observation.get('type') or '').upper() != 'TOOL':
         return False
-    level_is_error = str(observation.get('level') or '').upper() == 'ERROR'
     status = _optional_str(observation.get('status_message'))
     output = observation.get('output')
     parts = [status]
@@ -181,8 +178,10 @@ def _is_file_not_found_result(observation: Mapping[str, Any]) -> bool:
             _optional_str(output.get(key))
             for key in ('error_code', 'error', 'code', 'message')
         )
+    else:
+        parts.append(_optional_str(output))
     text = ' '.join(item for item in parts if item).lower()
-    return level_is_error and any(token in text for token in _FILE_NOT_FOUND_TOKENS)
+    return any(token in text for token in _FILE_NOT_FOUND_TOKENS)
 
 
 def _extract_path(value: Any) -> Optional[str]:

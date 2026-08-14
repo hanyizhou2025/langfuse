@@ -118,7 +118,9 @@ def test_historical_converter_keeps_user_as_original_path_source() -> None:
     assert source.observation_id == 'user-request'
 
 
-def test_historical_converter_does_not_treat_successful_document_text_as_failure() -> None:
+def test_historical_converter_does_not_treat_successful_document_text_as_failure() -> (
+    None
+):
     observations = [
         _observation(
             'successful-read',
@@ -135,6 +137,28 @@ def test_historical_converter_does_not_treat_successful_document_text_as_failure
     converted = convert_historical_langfuse_observations(observations)
 
     assert converted.evidence.tool_failures == []
+
+
+def test_historical_converter_accepts_scalar_rule_candidate_without_error_level() -> (
+    None
+):
+    path = '/workspace/missing.md'
+    observations = [
+        _observation(
+            'tool-result',
+            0,
+            observation_type='TOOL',
+            name='read_file',
+            input_value={'path': path},
+            output_value='File not found: %s' % path,
+        )
+    ]
+
+    converted = convert_historical_langfuse_observations(observations)
+
+    assert (
+        converted.evidence.tool_failures[0].tool_result_observation_id == 'tool-result'
+    )
 
 
 def test_historical_converter_marks_unseen_path_source_unknown() -> None:
