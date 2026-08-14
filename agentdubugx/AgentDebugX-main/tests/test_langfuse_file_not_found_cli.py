@@ -171,6 +171,8 @@ def test_run_dataset_without_annotations_only_writes_predictions(
     _write_jsonl(dataset_dir / 'cases.jsonl', [])
     _write_jsonl(dataset_dir / 'observations.jsonl', [])
     _write_jsonl(dataset_dir / 'traces.jsonl', [])
+    output_dir.mkdir()
+    (output_dir / 'report.json').write_text('{"stale": true}', encoding='utf-8')
 
     summary = run_dataset(dataset_dir=dataset_dir, output_dir=output_dir)
 

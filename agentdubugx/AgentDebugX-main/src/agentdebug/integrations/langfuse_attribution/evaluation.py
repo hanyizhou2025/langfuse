@@ -174,18 +174,34 @@ def evaluate_file_not_found_predictions(
             report['missing_prediction_count'] += 1
             continue
 
-        human_label = _nested_value(
+        human_label = _nested_or_flat(
             annotation,
             'technical_error_review',
             'human_label',
+            'technical_error_review',
         )
-        is_agent_failure = _nested_value(
+        is_agent_failure = _nested_or_flat(
             annotation,
             'semantic_outcome',
             'is_agent_failure',
+            'is_agent_failure',
         )
-        attribution_applicable = bool(
-            _nested_value(annotation, 'attribution', 'applicable')
+        attribution_applicable_value = _nested_or_flat(
+            annotation,
+            'attribution',
+            'applicable',
+            'attribution_applicable',
+        )
+        expected_root = _nested_or_flat(
+            annotation,
+            'attribution',
+            'primary_root_cause_observation_id',
+            'primary_root_cause_observation_id',
+        )
+        attribution_applicable = (
+            bool(attribution_applicable_value)
+            if attribution_applicable_value is not None
+            else is_agent_failure is True and expected_root is not None
         )
         decision = str(prediction.get('decision') or '')
 
@@ -205,15 +221,11 @@ def evaluate_file_not_found_predictions(
 
         if is_agent_failure is True and attribution_applicable:
             report['attribution']['total'] += 1
-            expected_label = _nested_value(
+            expected_label = _nested_or_flat(
                 annotation,
                 'attribution',
                 'root_cause_label',
-            )
-            expected_root = _nested_value(
-                annotation,
-                'attribution',
-                'primary_root_cause_observation_id',
+                'root_cause_label',
             )
             if prediction.get('root_cause_label') == expected_label:
                 report['attribution']['label_correct'] += 1
@@ -279,7 +291,10 @@ def _failure_observation_id(case: Mapping[str, Any]) -> Optional[str]:
 
 def _serialize_result(value: Any) -> Dict[str, Any]:
     payload = asdict(value)
-    return _serialize_enums(payload)
+    serialized = _serialize_enums(payload)
+    if not isinstance(serialized, dict):
+        raise TypeError('Serialized attribution result must be an object.')
+    return serialized
 
 
 def _serialize_enums(value: Any) -> Any:
@@ -295,6 +310,16 @@ def _serialize_enums(value: Any) -> Any:
 def _nested_value(value: Mapping[str, Any], parent: str, child: str) -> Any:
     nested = value.get(parent)
     return nested.get(child) if isinstance(nested, Mapping) else None
+
+
+def _nested_or_flat(
+    value: Mapping[str, Any],
+    parent: str,
+    child: str,
+    flat_key: str,
+) -> Any:
+    nested = _nested_value(value, parent, child)
+    return nested if nested is not None else value.get(flat_key)
 
 
 def _optional_str(value: Any) -> Optional[str]:

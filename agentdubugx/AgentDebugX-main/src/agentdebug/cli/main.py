@@ -25,6 +25,7 @@ from agentdebug.cli.commands import (
     serve,
     store,
 )
+from agentdebug.integrations.langfuse_attribution import production
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -138,7 +139,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_runner_serve.add_argument('--environment-restore', action='store_true')
     p_runner_serve.set_defaults(handler=runner.run)
 
-    p_doctor = sub.add_parser('doctor', help='Report adapter and integration availability')
+    p_doctor = sub.add_parser(
+        'doctor', help='Report adapter and integration availability'
+    )
     p_doctor.set_defaults(handler=lambda _args: doctor.run())
 
     p_serve = sub.add_parser('serve', help='Run the local FastAPI dashboard')
@@ -156,7 +159,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_act = sub.add_parser('act', help='Run advanced follow-up actions')
     act_sub = p_act.add_subparsers(dest='act_command', required=True)
 
-    p_act_hub = act_sub.add_parser('hub', help='Error Hub - package, push, pull bundles')
+    p_act_hub = act_sub.add_parser(
+        'hub', help='Error Hub - package, push, pull bundles'
+    )
     legacy._add_hub_subcommands(p_act_hub)
     p_act_hub.set_defaults(handler=hub.run)
 
@@ -174,6 +179,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p_int = sub.add_parser('integrations', help='Generate host-runtime integrations')
     legacy._add_integrations_subcommands(p_int)
     p_int.set_defaults(handler=integrations.run)
+
+    p_langfuse_fnf = sub.add_parser(
+        'langfuse-fnf',
+        help='Run File Not Found attribution from Langfuse production tables',
+    )
+    production.add_cli_arguments(p_langfuse_fnf)
+    p_langfuse_fnf.set_defaults(handler=production.run_cli)
 
     args = parser.parse_args(argv)
     handler = getattr(args, 'handler', None)

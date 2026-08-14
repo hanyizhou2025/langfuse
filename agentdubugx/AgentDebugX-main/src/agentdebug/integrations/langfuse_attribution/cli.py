@@ -31,30 +31,61 @@ def run_dataset(
     cases = _read_jsonl(dataset_dir / 'cases.jsonl')
     observations = _read_jsonl(dataset_dir / 'observations.jsonl')
     traces = _read_jsonl(dataset_dir / 'traces.jsonl')
-    predictions = predict_file_not_found_cases(
-        cases,
-        observations,
+    annotations_path = dataset_dir / 'annotations.jsonl'
+    annotations = _read_jsonl(annotations_path) if annotations_path.exists() else []
+    return run_records(
+        cases=cases,
+        observations=observations,
         traces=traces,
+        annotations=annotations,
+        output_dir=output_dir,
+        llm=llm,
+        review_deterministic=review_deterministic,
+        max_context_observations=max_context_observations,
+    )
+
+
+def run_records(
+    *,
+    cases: Iterable[Mapping[str, Any]],
+    observations: Iterable[Mapping[str, Any]],
+    traces: Iterable[Mapping[str, Any]],
+    output_dir: Path,
+    annotations: Iterable[Mapping[str, Any]] = (),
+    llm: Optional[LLMClient] = None,
+    review_deterministic: bool = False,
+    max_context_observations: int = 64,
+) -> Dict[str, Any]:
+    """Run the same pipeline for database-backed or frozen input records."""
+
+    case_rows = list(cases)
+    observation_rows = list(observations)
+    trace_rows = list(traces)
+    annotation_rows = list(annotations)
+    predictions = predict_file_not_found_cases(
+        case_rows,
+        observation_rows,
+        traces=trace_rows,
         llm=llm,
         review_deterministic=review_deterministic,
         max_context_observations=max_context_observations,
     )
     trajectories = build_file_not_found_review_trajectories(
         predictions,
-        observations,
-        traces=traces,
+        observation_rows,
+        traces=trace_rows,
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl_atomic(output_dir / 'predictions.jsonl', predictions)
     _write_jsonl_atomic(output_dir / 'trajectories.jsonl', trajectories)
 
-    annotations_path = dataset_dir / 'annotations.jsonl'
-    evaluated = annotations_path.exists()
+    evaluated = bool(annotation_rows)
     if evaluated:
-        annotations = _read_jsonl(annotations_path)
-        report = evaluate_file_not_found_predictions(predictions, annotations)
+        report = evaluate_file_not_found_predictions(predictions, annotation_rows)
         _write_json_atomic(output_dir / 'report.json', report)
+    else:
+        (output_dir / 'report.json').unlink(missing_ok=True)
 
     summary = {
         'prediction_count': len(predictions),
