@@ -189,6 +189,10 @@ def _file_not_found_attribution_card(
     prompt_tokens = summary.get('llm_prompt_tokens')
     completion_tokens = summary.get('llm_completion_tokens')
     context_text = _count_pair(reviewed_count, total_count, 'observations')
+    if summary.get('attribution_method') == 'deterministic' and not summary.get(
+        'model'
+    ):
+        context_text = 'Not applicable'
     token_text = _count_pair(prompt_tokens, completion_tokens, 'tokens', separator=' + ')
     root_scope = _humanize(summary.get('root_cause_scope')).capitalize()
     earliest_id = str(

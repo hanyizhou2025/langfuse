@@ -111,3 +111,26 @@ def test_file_not_found_presentation_drops_unknown_metadata() -> None:
     )
 
     assert 'raw_path' not in summary
+
+
+def test_deterministic_attribution_does_not_show_zero_model_context(
+    failed_trajectory: AgentTrajectory,
+) -> None:
+    failed_trajectory.metadata['langfuse_file_not_found_attributions'] = [
+        {
+            'case_id': 'case-deterministic',
+            'trace_id': failed_trajectory.trace_id,
+            'decision': 'unknown',
+            'semantics': 'unknown',
+            'is_agent_failure': None,
+            'failure_observation_id': 'evt_tool',
+            'attribution_method': 'deterministic',
+            'model': None,
+            'total_observation_count': 0,
+            'reviewed_observation_count': 0,
+        }
+    ]
+
+    page = render_tool_attribution_page(failed_trajectory)
+
+    assert 'Model context</strong><span>Not applicable' in page
