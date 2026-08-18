@@ -61,9 +61,9 @@ function bindGlobalActions() {
   ["technicalFilter", "scopeFilter", "rootLabelFilter", "confidenceFilter"].forEach((id) => {
     byId(id).addEventListener("change", renderCaseList);
   });
-  byId("observationSearch").addEventListener("input", renderObservationTree);
-  byId("observationTypeFilter").addEventListener("change", renderObservationTree);
-  byId("errorOnlyFilter").addEventListener("change", renderObservationTree);
+  byId("observationSearch").addEventListener("input", () => renderObservationTree({ preserveScroll: false }));
+  byId("observationTypeFilter").addEventListener("change", () => renderObservationTree({ preserveScroll: false }));
+  byId("errorOnlyFilter").addEventListener("change", () => renderObservationTree({ preserveScroll: false }));
   byId("clearSelectionButton").addEventListener("click", () => {
     state.checkedObservationIds.clear();
     renderObservationTree();
@@ -189,6 +189,7 @@ function renderCaseList() {
 async function selectCase(caseId, force = false) {
   if (!force && state.dirty && !window.confirm("当前修改尚未保存，确定切换Case吗？")) return;
   try {
+    const sameCase = state.current?.case?.case_id === caseId;
     const payload = await api(`/api/cases/${encodeURIComponent(caseId)}`);
     state.current = payload;
     state.annotation = payload.latest_annotation ? clone(payload.latest_annotation) : defaultAnnotation(payload);
@@ -200,7 +201,7 @@ async function selectCase(caseId, force = false) {
     state.step = 1;
     const latestStatus = payload.latest_annotation?.annotation_status;
     state.readOnly = Boolean(latestStatus && latestStatus !== "draft");
-    renderWorkspace();
+    renderWorkspace({ preserveObservationScroll: sameCase });
     renderCaseList();
   } catch (error) { showToast(error.message, true); }
 }
@@ -223,7 +224,7 @@ function defaultAnnotation(envelope) {
   };
 }
 
-function renderWorkspace() {
+function renderWorkspace({ preserveObservationScroll = false } = {}) {
   byId("emptyState").classList.add("hidden");
   byId("workspace").classList.remove("hidden");
   const envelope = state.current;
@@ -240,7 +241,7 @@ function renderWorkspace() {
   byId("observationCount").textContent = `${envelope.observations.length} / ${envelope.source_snapshot.observation_count} 个节点`;
   populateObservationTypes();
   renderForm();
-  renderObservationTree();
+  renderObservationTree({ preserveScroll: preserveObservationScroll });
   renderObservationDetail();
   renderRevisionHistory();
   setReadOnly(state.readOnly);
@@ -400,9 +401,10 @@ function populateObservationTypes() {
   select.value = types.includes(current) ? current : "";
 }
 
-function renderObservationTree() {
+function renderObservationTree({ preserveScroll = true } = {}) {
   if (!state.current) return;
   const container = byId("observationTree");
+  const previousScrollTop = preserveScroll ? container.scrollTop : 0;
   const search = value("observationSearch").toLowerCase();
   const typeFilter = value("observationTypeFilter");
   const errorOnly = byId("errorOnlyFilter").checked;
@@ -431,6 +433,12 @@ function renderObservationTree() {
     container.append(row);
   });
   if (!observations.length) container.textContent = "没有符合筛选条件的Observation。";
+  if (preserveScroll) {
+    const maximumScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    container.scrollTop = Math.min(previousScrollTop, maximumScrollTop);
+  } else {
+    container.scrollTop = 0;
+  }
 }
 
 function observationDepth(item) {
@@ -612,7 +620,7 @@ function locateNext() {
 function locateObservation(id) {
   state.selectedObservationId = id; state.checkedObservationIds = new Set([id]);
   byId("observationSearch").value = ""; byId("observationTypeFilter").value = ""; byId("errorOnlyFilter").checked = false;
-  renderObservationTree(); renderObservationDetail();
+  renderObservationTree({ preserveScroll: false }); renderObservationDetail();
   requestAnimationFrame(() => document.querySelector(".tree-node.selected")?.scrollIntoView({ block: "center" }));
 }
 
