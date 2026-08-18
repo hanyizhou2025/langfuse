@@ -1,0 +1,19 @@
+{
+  "project_id": "replace-with-langfuse-project-id",
+  "payload_contract": "raw",
+  "tables": {
+    "traces": "traces",
+    "observations": "observations",
+    "tool_errors": "default.tool_error"
+  },
+  "candidate_columns": {
+    "failure_observation_id": "observation_id",
+    "trace_id": "trace_id",
+    "project_id": "project_id",
+    "case_id": "id",
+    "rule_id": "error_type",
+    "timestamp": "created_at"
+  },
+  "allow_unscoped_tool_errors": false,
+  "matched_text_is_redacted": false
+}

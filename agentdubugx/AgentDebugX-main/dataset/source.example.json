@@ -1,0 +1,12 @@
+{
+  "project_id": "replace-with-langfuse-project-id",
+  "payload_contract": "raw",
+  "tables": {
+    "traces": "traces",
+    "observations": "observations",
+    "tool_errors": "tool_error"
+  },
+  "candidate_columns": {},
+  "allow_unscoped_tool_errors": false,
+  "matched_text_is_redacted": false
+}

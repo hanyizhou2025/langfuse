@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentDebugX · Tool 失败归因标注</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">AGENTDEBUGX DATASET</p>
+      <h1>Tool 失败归因标注</h1>
+    </div>
+    <div class="top-actions">
+      <span id="modeBadge" class="badge">加载中</span>
+      <label class="token-field">访问令牌
+        <input id="accessToken" type="password" autocomplete="off" placeholder="仅远程部署需要">
+      </label>
+      <button id="syncButton" type="button" class="button secondary">同步候选</button>
+      <button id="exportButton" type="button" class="button secondary">导出 JSONL</button>
+      <button id="importButton" type="button" class="button secondary">导入 JSONL</button>
+      <input id="importFile" class="hidden" type="file" accept=".jsonl,.ndjson,application/x-ndjson">
+      <button id="qualityButton" type="button" class="button secondary">标签质量</button>
+      <button id="freezeDatasetButton" type="button" class="button secondary">冻结数据集</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div class="app-shell">
+    <aside class="queue-panel" aria-label="Case 队列">
+      <div class="panel-heading">
+        <div>
+          <h2>Case 队列</h2>
+          <p id="caseCount">0 条</p>
+        </div>
+        <button id="refreshCasesButton" class="icon-button" type="button" title="刷新列表" aria-label="刷新Case列表">↻</button>
+      </div>
+      <label>状态
+        <select id="statusFilter">
+          <option value="">全部</option>
+          <option value="candidate">待标注</option>
+          <option value="draft">草稿</option>
+          <option value="needs_review">待复核</option>
+          <option value="submitted">已提交</option>
+          <option value="adjudicated">已裁决</option>
+          <option value="excluded">已排除</option>
+          <option value="frozen">已冻结</option>
+        </select>
+      </label>
+      <label>搜索 Case
+        <input id="caseSearch" type="search" placeholder="Case ID / Trace ID / 场景">
+      </label>
+      <details class="queue-filters">
+        <summary>标签筛选</summary>
+        <label>技术结论
+          <select id="technicalFilter"><option value="">全部</option><option>confirmed</option><option>rule_false_positive</option><option>insufficient_evidence</option></select>
+        </label>
+        <label>根因范围
+          <select id="scopeFilter"><option value="">全部</option><option>current_trace</option><option>outside_current_trace</option><option>unknown</option></select>
+        </label>
+        <label>根因标签
+          <select id="rootLabelFilter"><option value="">全部</option><option>user_path_invalid</option><option>model_path_hallucination</option><option>upstream_path_invalid</option><option>runtime_path_unavailable</option><option>unknown</option></select>
+        </label>
+        <label>总体置信度
+          <select id="confidenceFilter"><option value="">全部</option><option>high</option><option>medium</option><option>low</option></select>
+        </label>
+      </details>
+      <div id="caseList" class="case-list" role="listbox" aria-label="可标注Case"></div>
+    </aside>
+
+    <main class="main-panel">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-icon">⌁</div>
+        <h2>选择一条 Case 开始标注</h2>
+        <p>候选关键字不是人工真值。请分别审核技术事实、任务语义、错误显现与根因范围。</p>
+      </section>
+
+      <div id="workspace" class="workspace hidden">
+        <section class="case-header card">
+          <div class="case-title-row">
+            <div>
+              <p class="eyebrow">CURRENT CASE</p>
+              <h2 id="caseTitle">—</h2>
+            </div>
+            <div class="case-status-actions">
+              <span id="caseStatus" class="badge">candidate</span>
+              <button id="newRevisionButton" type="button" class="button secondary hidden">创建新修订</button>
+            </div>
+          </div>
+          <dl id="caseMetadata" class="metadata-grid"></dl>
+          <section class="label-summary-section" aria-label="最新标签摘要">
+            <div class="panel-heading">
+              <div><h3>最新标签摘要</h3><p>用于复核当前 revision，不包含 DebugX/LLM 预测</p></div>
+            </div>
+            <dl id="labelSummary" class="metadata-grid label-summary"></dl>
+          </section>
+          <div id="truncatedWarning" class="warning hidden">
+            当前 Trace 上下文已截断。未知结果和低置信度提交将自动进入复核队列。
+          </div>
+          <div class="privacy-note">初次标注模式：自动归因预测已隐藏，避免锚定偏差。</div>
+        </section>
+
+        <section class="observation-workbench">
+          <div class="card tree-card">
+            <div class="panel-heading">
+              <div><h2>Observation 树</h2><p id="observationCount">0 个节点</p></div>
+              <button id="clearSelectionButton" class="icon-button" type="button" title="清空节点勾选">×</button>
+            </div>
+            <div class="tree-filters">
+              <input id="observationSearch" type="search" placeholder="搜索 ID / name / error 文本">
+              <select id="observationTypeFilter"><option value="">全部类型</option></select>
+              <label class="check-row"><input id="errorOnlyFilter" type="checkbox">仅错误</label>
+            </div>
+            <div class="locate-row">
+              <button id="locateFailureButton" type="button" class="mini-button">定位命中 Tool</button>
+              <button id="locateParentButton" type="button" class="mini-button">定位父节点</button>
+              <button id="locateNextButton" type="button" class="mini-button">定位后续节点</button>
+            </div>
+            <div class="role-toolbar" aria-label="节点角色设置">
+              <button type="button" data-role="failure" title="快捷键 F"><b>F</b> 错误</button>
+              <button type="button" data-role="root" title="快捷键 R"><b>R</b> 根因</button>
+              <button type="button" data-role="evidence" title="快捷键 E"><b>E</b> 证据</button>
+              <button type="button" data-role="context" title="快捷键 C"><b>C</b> 最早证据</button>
+              <button type="button" data-role="trigger" title="快捷键 T"><b>T</b> 触发</button>
+              <button type="button" data-role="symptom"><b>S</b> 症状</button>
+              <button type="button" data-role="recovery"><b>Y</b> 恢复</button>
+              <button type="button" data-role="clear">清除角色</button>
+            </div>
+            <div id="observationTree" class="observation-tree" role="tree" aria-label="Observation树"></div>
+          </div>
+
+          <div class="card detail-card">
+            <div class="panel-heading">
+              <div><h2>节点详情</h2><p id="selectedObservationLabel">请选择节点</p></div>
+              <label class="check-row"><input id="rawWrapToggle" type="checkbox" checked>自动换行</label>
+            </div>
+            <dl id="observationMetadata" class="metadata-grid compact"></dl>
+            <div class="payload-tabs" role="tablist">
+              <button type="button" class="payload-tab active" data-payload="input">Input</button>
+              <button type="button" class="payload-tab" data-payload="output">Output</button>
+              <button type="button" class="payload-tab" data-payload="status">Status</button>
+              <button type="button" class="payload-tab" data-payload="metadata">Metadata</button>
+            </div>
+            <pre id="observationPayload" class="payload"></pre>
+          </div>
+        </section>
+
+        <section class="annotation-card card">
+          <div class="stepper" role="tablist" aria-label="标注步骤">
+            <button type="button" data-step="1" class="active">1 技术错误</button>
+            <button type="button" data-step="2">2 任务语义</button>
+            <button type="button" data-step="3">3 错误显现</button>
+            <button type="button" data-step="4">4 根因范围</button>
+            <button type="button" data-step="5">5 参考链</button>
+            <button type="button" data-step="6">6 审核提交</button>
+          </div>
+
+          <div id="validationSummary" class="validation-summary hidden" tabindex="-1"></div>
+
+          <form id="annotationForm" novalidate>
+            <fieldset class="step-panel" data-step-panel="1">
+              <legend>技术错误审核</legend>
+              <p class="form-help">规则候选默认预填为“确认”，但仍需人工审核。命中错误文本不等于任务失败。</p>
+              <div class="field-grid thirds">
+                <label data-field="technical_error_review.human_label">人工结论
+                  <select id="technicalLabel">
+                    <option value="confirmed">确认技术错误（规则预填）</option>
+                    <option value="rule_false_positive">规则误报</option>
+                    <option value="insufficient_evidence">证据不足</option>
+                  </select>
+                </label>
+                <label id="correctionReasonField" data-field="technical_error_review.correction_reason">纠错原因
+                  <select id="correctionReason">
+                    <option value="">请选择</option>
+                    <option value="successful_content_mentions_error">成功正文包含错误文本</option>
+                    <option value="expected_text_assertion">预期文本断言</option>
+                    <option value="log_or_documentation_only">日志或文档内容</option>
+                    <option value="wrong_observation_type">错误Observation类型</option>
+                    <option value="duplicate_candidate">重复候选</option>
+                    <option value="other">其他</option>
+                  </select>
+                </label>
+                <label data-field="technical_error_review.confidence">技术审核置信度
+                  <select id="technicalConfidence"><option>high</option><option selected>medium</option><option>low</option></select>
+                </label>
+              </div>
+              <label>审核说明<textarea id="technicalComment" rows="3"></textarea></label>
+            </fieldset>
+
+            <fieldset class="step-panel hidden" data-step-panel="2">
+              <legend>Tool结果和任务语义</legend>
+              <div class="field-grid thirds">
+                <label data-field="semantic_outcome.tool_result_semantics">结果语义
+                  <select id="toolSemantics">
+                    <option value="unknown">unknown</option><option value="unexpected_failure">unexpected_failure</option>
+                    <option value="expected_negative_result">expected_negative_result</option><option value="validation_probe">validation_probe</option>
+                    <option value="control_flow_signal">control_flow_signal</option><option value="recovered_failure">recovered_failure</option>
+                    <option value="tolerated_failure">tolerated_failure</option><option value="user_requested_negative_test">user_requested_negative_test</option>
+                    <option value="external_failure">external_failure</option>
+                  </select>
+                </label>
+                <label>Agent是否失败<select id="isAgentFailure"><option value="null">未知</option><option value="true">是</option><option value="false">否</option></select></label>
+                <label>最终任务是否失败<select id="isTaskFailure"><option value="null">未知</option><option value="true">是</option><option value="false">否</option></select></label>
+                <label data-field="semantic_outcome.recovery_status">恢复状态<select id="recoveryStatus"><option value="unknown">unknown</option><option value="recovered">recovered</option><option value="not_recovered">not_recovered</option></select></label>
+                <label data-field="semantic_outcome.recovery_observation_id">恢复Observation<input id="recoveryObservation" readonly placeholder="使用Y设置"></label>
+                <label data-field="semantic_outcome.confidence">语义置信度<select id="semanticConfidence"><option>high</option><option selected>medium</option><option>low</option></select></label>
+              </div>
+              <label>结果判断原因<textarea id="outcomeReason" rows="3"></textarea></label>
+            </fieldset>
+
+            <fieldset class="step-panel hidden" data-step-panel="3">
+              <legend>错误显现节点</legend>
+              <p class="form-help">错误显现是客观出现错误的位置，不应自动复制为根因。</p>
+              <div class="field-grid halves">
+                <label data-field="failure_manifestation.failure_onset_observation_id">首次显现<input id="failureOnset" readonly></label>
+                <label data-field="failure_manifestation.primary_failure_observation_id">主要失败节点<input id="primaryFailure" readonly></label>
+              </div>
+              <div class="role-box"><h3>全部失败节点</h3><div id="failureChips" class="chips"></div></div>
+              <div class="role-box"><h3>下游症状节点</h3><div id="symptomChips" class="chips"></div></div>
+            </fieldset>
+
+            <fieldset class="step-panel hidden" data-step-panel="4">
+              <legend>归因适用性和根因范围</legend>
+              <div class="field-grid thirds">
+                <label data-field="attribution.root_cause_scope">根因范围
+                  <select id="rootScope"><option value="unknown">unknown</option><option value="current_trace">current_trace</option><option value="outside_current_trace">outside_current_trace</option></select>
+                </label>
+                <label>归因适用<select id="attributionApplicable"><option value="false">false</option><option value="true">true</option></select></label>
+                <label data-field="attribution.confidence">归因置信度<select id="attributionConfidence"><option>high</option><option selected>medium</option><option>low</option></select></label>
+                <label data-field="attribution.primary_root_cause_observation_id">主要根因<input id="primaryRoot" readonly placeholder="使用R设置"></label>
+                <label data-field="attribution.root_cause_domain">责任域
+                  <select id="rootDomain"><option value="">请选择</option><option>user</option><option>model</option><option>skill</option><option>upstream</option><option>runtime</option><option>environment</option><option>tool</option><option>external_dependency</option><option>unknown</option></select>
+                </label>
+                <label data-field="attribution.root_cause_label">原因标签
+                  <select id="rootLabel"><option value="">请选择</option><option>user_path_invalid</option><option>model_path_hallucination</option><option>upstream_path_invalid</option><option>runtime_path_unavailable</option><option>tool_contract_mismatch</option><option>external_dependency_failure</option><option>unknown</option></select>
+                </label>
+                <label>路径来源类型<select id="pathSourceKind"><option value="">请选择</option><option>user</option><option>assistant_history</option><option>model</option><option>skill</option><option>system</option><option>environment</option><option>unknown</option></select></label>
+                <label>路径来源节点<input id="pathSourceObservation" readonly></label>
+              </div>
+              <div id="outsideExplanation" class="info hidden">当前 Trace 不包含可验证的真正根因。请在下一步标注参考链，不要强制选择根因节点。</div>
+              <div class="role-box"><h3>当前Trace根因节点</h3><div id="rootChips" class="chips"></div></div>
+            </fieldset>
+
+            <fieldset class="step-panel hidden" data-step-panel="5">
+              <legend>当前Trace参考链</legend>
+              <div class="field-grid thirds">
+                <label data-field="current_trace_reference.earliest_local_evidence_observation_id">最早本地证据<input id="earliestEvidence" readonly placeholder="使用C设置"></label>
+                <label data-field="current_trace_reference.local_trigger_observation_id">本地触发节点<input id="localTrigger" readonly placeholder="使用T设置"></label>
+                <label data-field="current_trace_reference.confidence">参考置信度<select id="referenceConfidence"><option>high</option><option selected>medium</option><option>low</option></select></label>
+                <label>边界原因<select id="boundaryReason"><option value="">请选择</option><option>assistant_context_at_trace_entry</option><option>system_context_at_trace_entry</option><option>upstream_reference_without_source</option><option>trace_context_truncated</option><option>other</option></select></label>
+              </div>
+              <div class="role-box"><h3>有序传播链</h3><div id="propagationList" class="ordered-chips"></div></div>
+              <div class="role-box"><h3>参考证据</h3><div id="referenceEvidenceChips" class="chips"></div></div>
+              <label>参考摘要<textarea id="referenceSummary" rows="4"></textarea></label>
+            </fieldset>
+
+            <fieldset class="step-panel hidden" data-step-panel="6">
+              <legend>证据、说明和置信度</legend>
+              <div class="role-box" data-field="review.evidence_observation_ids"><h3>总体证据节点</h3><div id="reviewEvidenceChips" class="chips"></div></div>
+              <label data-field="review.reasoning_summary">推理摘要<textarea id="reasoningSummary" rows="4" placeholder="说明为什么这样标，不要复制整段Trace"></textarea></label>
+              <fieldset class="checkbox-group"><legend>已知限制</legend>
+                <label><input type="checkbox" name="limitations" value="root_outside_trace">根因在Trace外</label>
+                <label><input type="checkbox" name="limitations" value="downstream_outcome_unclear">下游结果不明确</label>
+                <label><input type="checkbox" name="limitations" value="context_truncated">上下文截断</label>
+                <label><input type="checkbox" name="limitations" value="tool_call_pairing_ambiguous">Tool配对歧义</label>
+                <label><input type="checkbox" name="limitations" value="runtime_state_unavailable">运行时状态不可用</label>
+              </fieldset>
+              <div class="field-grid halves">
+                <label data-field="review.overall_confidence">总体置信度<select id="overallConfidence"><option>high</option><option selected>medium</option><option>low</option></select></label>
+                <label>修改原因<input id="changeReason" placeholder="新revision建议填写"></label>
+              </div>
+              <label>备注<textarea id="reviewNotes" rows="3"></textarea></label>
+              <section class="history-section"><h3>Revision历史</h3><p class="form-help">点击任一 revision 查看完整只读标签及与当前版本的差异。</p><div id="revisionHistory"></div></section>
+            </fieldset>
+
+            <div class="step-navigation">
+              <button id="previousStepButton" type="button" class="button secondary">上一步</button>
+              <span id="stepIndicator">第 1 / 6 步</span>
+              <button id="nextStepButton" type="button" class="button secondary">下一步</button>
+            </div>
+          </form>
+        </section>
+
+        <footer class="action-bar">
+          <label class="check-row"><input id="autosaveToggle" type="checkbox">自动保存草稿</label>
+          <span id="saveState">未修改</span>
+          <div class="action-spacer"></div>
+          <button id="resetButton" type="button" class="button secondary">重置修改</button>
+          <button id="excludeButton" type="button" class="button danger">排除Case</button>
+          <button id="adjudicateButton" type="button" class="button secondary hidden">裁决通过</button>
+          <button id="freezeCaseButton" type="button" class="button secondary hidden">冻结Case</button>
+          <button id="saveDraftButton" type="button" class="button secondary">保存草稿</button>
+          <button id="submitNextButton" type="button" class="button primary">提交并下一条</button>
+        </footer>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="revisionDialog" class="management-dialog">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">IMMUTABLE REVISION</p><h2 id="revisionDialogTitle">Revision详情</h2></div>
+      <button id="closeRevisionDialog" type="button" class="icon-button" aria-label="关闭revision详情">×</button>
+    </div>
+    <dl id="revisionDialogMetadata" class="metadata-grid compact"></dl>
+    <section class="dialog-section"><h3>与当前 revision 的差异</h3><div id="revisionDiff" class="diff-list"></div></section>
+    <section class="dialog-section"><h3>完整 Annotation JSON</h3><pre id="revisionPayload" class="payload dialog-payload"></pre></section>
+  </dialog>
+
+  <dialog id="qualityDialog" class="management-dialog">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">LABEL QUALITY</p><h2>标签质量与冻结检查</h2></div>
+      <button id="closeQualityDialog" type="button" class="icon-button" aria-label="关闭质量报告">×</button>
+    </div>
+    <dl id="qualitySummary" class="metadata-grid compact"></dl>
+    <section class="dialog-section"><h3>分布与问题</h3><pre id="qualityPayload" class="payload dialog-payload"></pre></section>
+    <div class="dialog-actions"><button id="applyImportButton" type="button" class="button primary hidden">确认导入并创建revision</button></div>
+  </dialog>
+
+  <dialog id="transitionDialog" class="management-dialog compact-dialog">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">CASE STATUS</p><h2 id="transitionDialogTitle">更新Case状态</h2></div>
+      <button id="closeTransitionDialog" type="button" class="icon-button" aria-label="关闭状态操作">×</button>
+    </div>
+    <p id="transitionDialogHelp" class="form-help"></p>
+    <label>变更原因<input id="transitionReason" placeholder="必填；会写入不可变revision审计"></label>
+    <div class="dialog-actions"><button id="confirmTransitionButton" type="button" class="button primary">确认并创建revision</button></div>
+  </dialog>
+
+  <dialog id="freezeDialog" class="management-dialog compact-dialog">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">DATASET FREEZE</p><h2>正式冻结数据集</h2></div>
+      <button id="closeFreezeDialog" type="button" class="icon-button" aria-label="关闭冻结操作">×</button>
+    </div>
+    <p class="form-help">仅已裁决或已冻结Case可以进入冻结包；候选、草稿、已提交和待复核Case会阻止操作。</p>
+    <div class="field-grid halves">
+      <label>数据集版本<input id="datasetVersion" placeholder="fnf-YYYYMMDD-v1"></label>
+      <label>测试集比例<select id="datasetTestRatio"><option value="0.2">20%</option><option value="0.3">30%</option><option value="0.4" selected>40%</option><option value="0.5">50%</option></select></label>
+    </div>
+    <pre id="freezePreview" class="payload dialog-payload compact-payload">尚未预检</pre>
+    <div class="dialog-actions">
+      <button id="previewFreezeButton" type="button" class="button secondary">预检</button>
+      <button id="applyFreezeButton" type="button" class="button primary" disabled>冻结并下载 ZIP</button>
+    </div>
+  </dialog>
+  <script src="app.js" defer></script>
+</body>
+</html>
